@@ -41,7 +41,7 @@ const CONFIG = {
 const CHASE_MODES = {
   'chase-easy': {
     id: 'chase-easy',
-    title: 'Cursor Chase — Easy',
+    title: 'Beat Slap — Easy',
     label: 'Easy',
     baseFade: 2100,
     minFade: 1050,
@@ -52,7 +52,7 @@ const CHASE_MODES = {
   },
   'chase-medium': {
     id: 'chase-medium',
-    title: 'Cursor Chase — Medium',
+    title: 'Beat Slap — Medium',
     label: 'Medium',
     baseFade: 1700,
     minFade: 850,
@@ -63,7 +63,7 @@ const CHASE_MODES = {
   },
   'chase-hard': {
     id: 'chase-hard',
-    title: 'Cursor Chase — Hard',
+    title: 'Beat Slap — Hard',
     label: 'Hard',
     baseFade: 1400,
     minFade: 700,
@@ -74,7 +74,7 @@ const CHASE_MODES = {
   },
   'chase-endless': {
     id: 'chase-endless',
-    title: 'Cursor Chase — Endless',
+    title: 'Beat Slap — Endless',
     label: 'Endless',
     baseFade: 1800,
     minFade: 750,
@@ -180,6 +180,15 @@ function beginGameplayAfterCountdown() {
     const now = gameNow();
     spawnChaseNotes(now, 1);
     state.nextSpawnAt = now + getChaseSpawnGap(0);
+  } else if (state.bulletHellMode) {
+    bhReset();
+    const firstBeat = state.beatQueue[0];
+    if (firstBeat) {
+      const hitTime = beatToPerfTime(firstBeat.beatIndex);
+      const approachTime = getApproachTime();
+      spawnBulletHellBeat(hitTime, approachTime, firstBeat);
+      state.beatQueueIndex = 0;
+    }
   } else if (state.endlessMode) {
     state.endlessWaiting = true;
     state.nextSpawnAt = gameNow();
@@ -279,9 +288,14 @@ const state = {
   endlessWindowStart: 0,
   endlessWindowMisses: 0,
   shockwaves: [],
+  keysDown: {},
+  player: null,
+  bullets: [],
+  bhNextBulletAt: 0,
   nextSpawnAt: 0,
   gameStartTime: 0,
   chaseMode: false,
+  bulletHellMode: false,
   chaseDifficulty: null,
   chaseNotes: [],
   chasePerfectStreak: 0,
@@ -303,7 +317,7 @@ const state = {
 const screens = {
   start: document.getElementById('start-screen'),
   select: document.getElementById('select-screen'),
-  chaseSelect: document.getElementById('chase-select-screen'),
+  chaseSelect: null,
   cosmetics: document.getElementById('cosmetics-screen'),
   game: document.getElementById('game-screen'),
   results: document.getElementById('results-screen'),
@@ -358,6 +372,7 @@ function togglePause() {
 
   state.paused = true;
   state.pauseAt = performance.now();
+  state.keysDown = {};
   songPlayer.setMuted(true);
   if (els.pauseOverlay) els.pauseOverlay.classList.remove('hidden');
 }
@@ -369,7 +384,7 @@ function leaveGame() {
   songPlayer.stop();
   songPlayer.setMuted(false);
   if (els.pauseOverlay) els.pauseOverlay.classList.add('hidden');
-  showScreen(state.chaseMode ? 'chaseSelect' : 'select');
+  showScreen('select');
 }
 
 function initAudio() {
@@ -586,7 +601,7 @@ function generatePatternPositions() {
 }
 
 function maybeStartPattern() {
-  if (state.chaseMode || state.endlessMode) return;
+  if (state.chaseMode || state.endlessMode || state.bulletHellMode) return;
   if (state.patternQueue.length > 0) return;
   if (state.totalNotes > 0 && state.totalNotes % CONFIG.patternEvery === 0) {
     const positions = generatePatternPositions();
@@ -988,7 +1003,11 @@ function skipMissedBeats(now) {
     }
 
     if (!beat.spawned && now >= hitTime - approachTime) {
-      spawnNoteForBeat(beat, hitTime, approachTime);
+      if (state.bulletHellMode) {
+        spawnBulletHellBeat(hitTime, approachTime, beat);
+      } else {
+        spawnNoteForBeat(beat, hitTime, approachTime);
+      }
     }
     break;
   }
@@ -1061,7 +1080,7 @@ function registerHit(rating, note) {
     if (registerEndlessMiss()) return;
     showFeedback(pickRandom(MISS_WORDS), 'miss');
     playHitSound('miss');
-    if (state.misses >= missLimit) endGame();
+    if (state.misses >= missLimit && !state.bulletHellMode) endGame();
     return;
   }
 
@@ -1156,6 +1175,28 @@ function handleInput(clientX, clientY) {
 
   const note = state.currentNote;
   if (!note || note.clicked) return;
+
+  if (state.bulletHellMode) {
+    const now = gameNow();
+    const diff = now - note.hitTime;
+    const { goodWindow, perfectWindow } = note;
+    if (Math.abs(diff) > goodWindow) {
+      resolveNote(note, diff < 0 ? 'early' : 'miss');
+      registerHit(diff < 0 ? 'early' : 'miss');
+      return;
+    }
+    if (Math.abs(diff) <= perfectWindow) {
+      resolveNote(note, 'perfect');
+      registerHit('perfect', note);
+    } else if (diff < 0) {
+      resolveNote(note, 'early');
+      registerHit('early');
+    } else {
+      resolveNote(note, 'late');
+      registerHit('late');
+    }
+    return;
+  }
 
   let mx = state.mouseX;
   let my = state.mouseY;
@@ -1467,7 +1508,10 @@ function render(now) {
   backgroundRenderer.draw(ctx, w, h, now);
 
   if (!isGameplayBlocked()) {
-    if (state.endlessMode && !state.chaseMode) {
+    if (state.bulletHellMode) {
+      skipMissedBeats(now);
+      bhUpdate(now, w, h);
+    } else if (state.endlessMode && !state.chaseMode) {
       trySpawnEndless(now);
     } else if (state.chaseMode) {
       updateChaseSpawns(now);
@@ -1502,6 +1546,20 @@ function render(now) {
     }
     drawCursorTrail();
     drawChaseCursor();
+  } else if (state.bulletHellMode) {
+    const note = state.currentNote;
+    if (note && !note.clicked && now > note.hitTime + note.goodWindow) {
+      resolveNote(note, 'late');
+      registerHit('late');
+    }
+    if (note) {
+      drawNote(note, now);
+      const fadeStart = note.clickTime || note.hitTime;
+      if (note.clicked && note.hit && now - fadeStart > CONFIG.hitFadeMs) finishCurrentNote();
+      else if (note.clicked && note.missed && now - fadeStart > CONFIG.missFadeMs) finishCurrentNote();
+      else if (!note.clicked && note.missed && now - note.hitTime > CONFIG.missFadeMs) finishCurrentNote();
+    }
+    bhDraw(ctx, w, h);
   } else {
     const note = state.currentNote;
     if (note && !note.clicked && now > note.hitTime + note.goodWindow) {
@@ -1562,19 +1620,23 @@ function showFeedback(text, className) {
 
 function updateProgress() {
   if (!state.song) return;
-  if (state.endlessMode || state.chaseMode) {
+  if (state.endlessMode || state.chaseMode || state.bulletHellMode) {
     const elapsed = gameNow() - state.gameStartTime;
     const sec = Math.floor(elapsed / 1000);
-    const windowElapsed = gameNow() - state.endlessWindowStart;
-    const missesLeft = windowElapsed > CONFIG.endlessMissWindowMs
-      ? CONFIG.endlessMissLimit + 1
-      : Math.max(0, CONFIG.endlessMissLimit + 1 - state.endlessWindowMisses);
-    const hearts = '❤'.repeat(missesLeft) + '♡'.repeat(CONFIG.endlessMissLimit + 1 - missesLeft);
     els.progressFill.style.width = `${((sec % 45) / 45) * 100}%`;
     if (els.progressLabel) {
-      els.progressLabel.textContent = (state.chaseMode
-        ? sec + 's · ' + (state.chaseDifficulty?.label || 'chase')
-        : sec + 's survived') + ' · ' + hearts;
+      if (state.bulletHellMode) {
+        els.progressLabel.textContent = sec + 's · ARROWS + SPACE';
+      } else {
+        const windowElapsed = gameNow() - state.endlessWindowStart;
+        const missesLeft = windowElapsed > CONFIG.endlessMissWindowMs
+          ? CONFIG.endlessMissLimit + 1
+          : Math.max(0, CONFIG.endlessMissLimit + 1 - state.endlessWindowMisses);
+        const hearts = '❤'.repeat(missesLeft) + '♡'.repeat(CONFIG.endlessMissLimit + 1 - missesLeft);
+        els.progressLabel.textContent = (state.chaseMode
+          ? sec + 's · ' + (state.chaseDifficulty?.label || 'slap')
+          : sec + 's survived') + ' · ' + hearts;
+      }
     }
     return;
   }
@@ -1601,7 +1663,7 @@ function gameLoop() {
   render(now);
   updateProgress();
 
-  if (state.gameplayStarted && !state.endlessMode && !state.chaseMode
+  if (state.gameplayStarted && !state.endlessMode && !state.chaseMode && !state.bulletHellMode
     && (songPlayer.isFinished() || state.beatQueueIndex >= state.beatQueue.length)) {
     if (!hasActiveNote()) { endGame(); return; }
   }
@@ -1609,7 +1671,7 @@ function gameLoop() {
   const missLimit = state.chaseMode && state.chaseDifficulty
     ? state.chaseDifficulty.missLimit
     : CONFIG.missLimit;
-  if (state.misses >= missLimit) return;
+  if (!state.bulletHellMode && state.misses >= missLimit) return;
 
   requestAnimationFrame(gameLoop);
 }
@@ -1634,6 +1696,7 @@ function resetGameState() {
   state.constellationGlow = 0;
   state.endlessMode = false;
   state.chaseMode = false;
+  state.bulletHellMode = false;
   state.chaseDifficulty = null;
   state.chaseNotes = [];
   state.chasePerfectStreak = 0;
@@ -1649,6 +1712,10 @@ function resetGameState() {
   state.endlessWindowStart = 0;
   state.endlessWindowMisses = 0;
   state.shockwaves = [];
+  state.keysDown = {};
+  state.player = null;
+  state.bullets = [];
+  state.bhNextBulletAt = 0;
   state.mouseOnCanvas = false;
   state.nextSpawnAt = 0;
   state.gameStartTime = 0;
@@ -1671,6 +1738,7 @@ function startGame(songId) {
   if (CHASE_MODES[songId]) {
     state.chaseDifficulty = CHASE_MODES[songId];
     state.chaseMode = true;
+    state.bulletHellMode = false;
     state.endlessMode = true;
     state.song = {
       ...CHASE_SONG,
@@ -1679,10 +1747,17 @@ function startGame(songId) {
       isChase: true,
       isEndless: !!state.chaseDifficulty.isEndless,
     };
+  } else if (songId === 'bullethell') {
+    state.bulletHellMode = true;
+    state.chaseMode = false;
+    state.endlessMode = false;
+    state.chaseDifficulty = null;
+    state.song = songPlayer.getSong('bullethell');
   } else {
     state.song = songPlayer.getSong(state.selectedSongId);
     state.endlessMode = !!(state.song.isEndless && !state.song.isChase);
     state.chaseMode = false;
+    state.bulletHellMode = false;
     state.chaseDifficulty = null;
   }
 
@@ -1690,9 +1765,15 @@ function startGame(songId) {
   state.nextSpawnAt = performance.now();
 
   const bgCosmetic = progression.getEquipped('background');
-  backgroundRenderer.setTheme(bgCosmetic ? { theme: bgCosmetic.value } : (state.chaseMode ? 'chase' : state.selectedSongId));
+  backgroundRenderer.setTheme(bgCosmetic ? { theme: bgCosmetic.value } : (
+    state.bulletHellMode ? 'bullethell' : (state.chaseMode ? 'chase' : state.selectedSongId)
+  ));
 
-  if (state.endlessMode || state.chaseMode) {
+  if (state.bulletHellMode) {
+    state.beatQueue = songPlayer.buildBeatMap(state.song).map(beatIndex => ({
+      beatIndex, spawned: false, resolved: false,
+    }));
+  } else if (state.endlessMode || state.chaseMode) {
     state.beatQueue = [];
   } else {
     state.beatQueue = songPlayer.buildBeatMap(state.song).map(beatIndex => ({
@@ -1709,12 +1790,13 @@ function startGame(songId) {
 
   const progressTitle = document.querySelector('.progress-title');
   if (progressTitle) {
-    if (state.chaseMode) progressTitle.textContent = 'CURSOR CHASE';
+    if (state.bulletHellMode) progressTitle.textContent = 'BULLET HELL';
+    else if (state.chaseMode) progressTitle.textContent = 'BEAT SLAP';
     else if (state.endlessMode) progressTitle.textContent = 'ENDLESS';
     else progressTitle.textContent = 'SONG PROGRESS';
   }
 
-  els.canvas.style.cursor = state.chaseMode ? 'none' : 'crosshair';
+  els.canvas.style.cursor = state.chaseMode ? 'none' : (state.bulletHellMode ? 'default' : 'crosshair');
 
   updateHUD();
   updateComboDisplay();
@@ -1744,12 +1826,12 @@ function endGame() {
   els.missCount.textContent = state.misses + state.earlys + state.lates;
   if (els.finalSong) {
     els.finalSong.textContent = state.song
-      ? state.song.title + ((state.endlessMode || state.chaseMode)
+      ? state.song.title + ((state.endlessMode || state.chaseMode || state.bulletHellMode)
         ? ` · ${Math.floor((gameNow() - state.gameStartTime) / 1000)}s` : '')
       : '';
   }
 
-  const survivalBonus = (state.endlessMode || state.chaseMode)
+  const survivalBonus = (state.endlessMode || state.chaseMode || state.bulletHellMode)
     ? Math.floor((gameNow() - state.gameStartTime) / 1000)
     : 0;
   const xpEarned = state.perfects * 4 + state.goods * 2 + state.bestCombo + survivalBonus;
@@ -1792,10 +1874,15 @@ function buildLevelSelect() {
   endlessCard.addEventListener('click', () => startGame('endless'));
   els.songGrid.appendChild(endlessCard);
 
-  const chaseCard = document.createElement('button');
-  chaseCard.className = 'song-card song-card-chase';
+  const chaseCard = document.createElement('div');
+  chaseCard.className = 'song-card song-card-chase mode-card-dropdown';
   chaseCard.style.setProperty('--song-color', CHASE_SONG.color);
   chaseCard.style.setProperty('--song-accent', CHASE_SONG.accent);
+
+  const chaseOptions = Object.values(CHASE_MODES)
+    .map(m => `<option value="${m.id}">${m.label}${m.isEndless ? ' ∞' : ''}</option>`)
+    .join('');
+
   chaseCard.innerHTML = `
     <div class="song-card-top">
       <span class="song-genre">${CHASE_SONG.genre}</span>
@@ -1803,11 +1890,34 @@ function buildLevelSelect() {
     </div>
     <span class="song-name">${CHASE_SONG.title}</span>
     <span class="song-meta">Move mouse to shapes · click before fade</span>
-    <span class="song-instruments">${CHASE_SONG.instruments.join(' · ')}</span>
     <span class="song-desc">${CHASE_SONG.description}</span>
+    <label class="mode-dropdown-label">Difficulty</label>
+    <select id="beat-slap-select" class="mode-dropdown">${chaseOptions}</select>
+    <button type="button" id="beat-slap-start" class="mode-play-btn">START</button>
   `;
-  chaseCard.addEventListener('click', () => showScreen('chaseSelect'));
   els.songGrid.appendChild(chaseCard);
+  document.getElementById('beat-slap-start').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const sel = document.getElementById('beat-slap-select');
+    startChaseGame(sel ? sel.value : 'chase-easy');
+  });
+
+  const bhCard = document.createElement('button');
+  bhCard.className = 'song-card song-card-bullethell';
+  bhCard.style.setProperty('--song-color', BULLET_HELL_SONG.color);
+  bhCard.style.setProperty('--song-accent', BULLET_HELL_SONG.accent);
+  bhCard.innerHTML = `
+    <div class="song-card-top">
+      <span class="song-genre">${BULLET_HELL_SONG.genre}</span>
+      <span class="song-difficulty">☄</span>
+    </div>
+    <span class="song-name">${BULLET_HELL_SONG.title}</span>
+    <span class="song-meta">Arrows dodge bullets · SPACE hits beats</span>
+    <span class="song-instruments">${BULLET_HELL_SONG.instruments.join(' · ')}</span>
+    <span class="song-desc">${BULLET_HELL_SONG.description}</span>
+  `;
+  bhCard.addEventListener('click', () => startGame('bullethell'));
+  els.songGrid.appendChild(bhCard);
 
   SONGS.forEach(song => {
     const card = document.createElement('button');
@@ -1827,35 +1937,6 @@ function buildLevelSelect() {
     `;
     card.addEventListener('click', () => startGame(song.id));
     els.songGrid.appendChild(card);
-  });
-}
-
-function buildChaseSelect() {
-  const grid = document.getElementById('chase-grid');
-  if (!grid) return;
-  grid.innerHTML = '';
-
-  Object.values(CHASE_MODES).forEach(mode => {
-    const card = document.createElement('button');
-    card.className = 'song-card song-card-chase';
-    card.style.setProperty('--song-color', CHASE_SONG.color);
-    card.style.setProperty('--song-accent', CHASE_SONG.accent);
-    const stars = mode.id === 'chase-endless' ? '∞' : '★'.repeat(
-      mode.id === 'chase-easy' ? 1 : mode.id === 'chase-medium' ? 2 : 3
-    );
-    card.innerHTML = `
-      <div class="song-card-top">
-        <span class="song-genre">${mode.label}</span>
-        <span class="song-difficulty">${stars}</span>
-      </div>
-      <span class="song-name">${mode.title}</span>
-      <span class="song-meta">One shape at a time · speed ramps up</span>
-      <span class="song-desc">${mode.id === 'chase-endless'
-        ? 'Endless chase — shapes get faster as you survive'
-        : 'Move cursor onto each shape and click before it fades'}</span>
-    `;
-    card.addEventListener('click', () => startChaseGame(mode.id));
-    grid.appendChild(card);
   });
 }
 
@@ -1907,8 +1988,8 @@ function buildCosmetics() {
 // ─── Event Listeners ─────────────────────────────────────────────
 document.getElementById('start-btn').addEventListener('click', () => showScreen('select'));
 document.getElementById('retry-btn').addEventListener('click', () => startGame(state.selectedSongId));
-const chaseBackBtn = document.getElementById('chase-back-btn');
-if (chaseBackBtn) chaseBackBtn.addEventListener('click', () => showScreen('select'));
+const backBtn = document.getElementById('back-btn');
+if (backBtn) backBtn.addEventListener('click', () => showScreen('start'));
 document.getElementById('select-back-btn').addEventListener('click', () => showScreen('select'));
 if (els.pauseContinueBtn) els.pauseContinueBtn.addEventListener('click', togglePause);
 if (els.pauseLeaveBtn) els.pauseLeaveBtn.addEventListener('click', leaveGame);
@@ -1934,6 +2015,14 @@ els.canvas.addEventListener('mouseleave', () => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+    if (state.running && state.bulletHellMode && screens.game.classList.contains('active')) {
+      e.preventDefault();
+      state.keysDown[e.code] = true;
+    }
+    return;
+  }
+
   if (e.code === 'Escape') {
     e.preventDefault();
     if (screens.game.classList.contains('active') && state.running) {
@@ -1950,10 +2039,15 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+document.addEventListener('keyup', (e) => {
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+    state.keysDown[e.code] = false;
+  }
+});
+
 window.addEventListener('resize', () => {
   if (screens.game.classList.contains('active')) resizeCanvas();
 });
 
 buildLevelSelect();
-buildChaseSelect();
 resizeCanvas();

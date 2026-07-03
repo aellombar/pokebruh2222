@@ -269,6 +269,28 @@ function scheduleChase(ctx, dest, start, beat, beatDur) {
   }
 }
 
+function scheduleBulletHell(ctx, dest, start, beat, beatDur) {
+  const t = start + beat * beatDur;
+  const pos = beat % 4;
+  const bar = Math.floor(beat / 4) % 4;
+
+  if (pos === 0) playKick(ctx, dest, t, 0.85);
+  if (pos === 2) playSnare(ctx, dest, t, 0.4);
+  playHiHat(ctx, dest, t, 0.09);
+  if (beat % 2 === 0) playHiHat(ctx, dest, t + beatDur * 0.5, 0.06);
+
+  const bass = [NOTE.C3, NOTE.G3, NOTE.A3, NOTE.F3];
+  if (pos === 0) playBass(ctx, dest, t, bass[bar], 0.36, beatDur * 1.5);
+
+  if (pos === 1 || pos === 3) {
+    playOsc(ctx, dest, t, NOTE.E5, 'square', beatDur * 0.22, 0.07, NOTE.C5);
+  }
+
+  if (bar === 0 && pos === 0) {
+    playChord(ctx, dest, t, [NOTE.C4, NOTE.E4, NOTE.G4], 'sawtooth', 0.08, beatDur * 2.2);
+  }
+}
+
 const ENDLESS_SONG = {
   id: 'endless',
   title: 'Endless Rush',
@@ -289,8 +311,8 @@ const ENDLESS_SONG = {
 
 const CHASE_SONG = {
   id: 'chase',
-  title: 'Cursor Chase',
-  genre: 'Chase Mode',
+  title: 'Beat Slap',
+  genre: 'Beat Slap',
   difficulty: 0,
   difficultyLabel: 'Mouse',
   isChase: true,
@@ -301,9 +323,28 @@ const CHASE_SONG = {
   noteInterval: 2,
   color: '#00ff88',
   accent: '#ff6b9d',
-  instruments: ['Chase Arp', 'Punchy Drums', 'Synth Stabs', 'Speed Ramp'],
+  instruments: ['Mouse Tracking', 'Fade Timer', 'Speed Ramp', 'Precision Clicks'],
   description: 'Move your cursor onto each shape and click before it fades away.',
   schedule: scheduleChase,
+};
+
+const BULLET_HELL_SONG = {
+  id: 'bullethell',
+  title: 'Bullet Hell',
+  genre: 'Bullet Hell',
+  difficulty: 0,
+  difficultyLabel: 'Dodge',
+  isBulletHell: true,
+  isEndless: true,
+  bpm: 140,
+  duration: 99999,
+  approachBeats: 1.8,
+  noteInterval: 2,
+  color: '#ff4466',
+  accent: '#ffcc00',
+  instruments: ['Arrow Dodge', 'Space Beats', 'Bullet Rain', 'Survive'],
+  description: 'Dodge bullets with arrows · hit beats with SPACE.',
+  schedule: scheduleBulletHell,
 };
 
 // ─── Song definitions ────────────────────────────────────────────
@@ -410,6 +451,7 @@ class SongPlayer {
   getSong(id) {
     if (id === 'endless') return ENDLESS_SONG;
     if (id === 'chase') return CHASE_SONG;
+    if (id === 'bullethell') return BULLET_HELL_SONG;
     return SONGS.find(s => s.id === id) || SONGS[0];
   }
 
@@ -438,7 +480,7 @@ class SongPlayer {
     this.playing = true;
 
     const beatDur = 60 / song.bpm;
-    const total = (song.isEndless || song.isChase) ? 1200 : this.getTotalBeats(song);
+    const total = (song.isEndless || song.isChase || song.isBulletHell) ? 1200 : this.getTotalBeats(song);
 
     for (let beat = 0; beat < total; beat++) {
       song.schedule(this.ctx, this.master, this.startTime, beat, beatDur);
@@ -471,7 +513,7 @@ class SongPlayer {
 
   isFinished() {
     if (!this.song || !this.playing) return false;
-    if (this.song.isEndless || this.song.isChase) return false;
+    if (this.song.isEndless || this.song.isChase || this.song.isBulletHell) return false;
     return this.getElapsedMs() >= this.song.duration * 1000;
   }
 }

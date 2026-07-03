@@ -438,6 +438,70 @@ body {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 25px rgba(0, 255, 136, 0.25);
 }
 
+.song-card-bullethell {
+  border-left-color: #ff4466;
+  background: linear-gradient(135deg, rgba(255, 68, 102, 0.1), rgba(255, 204, 0, 0.05));
+  grid-column: 1 / -1;
+}
+
+.song-card-bullethell:hover {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 25px rgba(255, 68, 102, 0.3);
+}
+
+.mode-card-dropdown {
+  cursor: default;
+  text-align: left;
+  grid-column: 1 / -1;
+}
+
+.mode-card-dropdown:hover {
+  transform: none;
+}
+
+.mode-dropdown-label {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #8a8aa0);
+  margin-top: 0.5rem;
+}
+
+.mode-dropdown {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 255, 136, 0.35);
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text-primary, #fff);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mode-play-btn {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.65rem;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  background: linear-gradient(135deg, #00ff88, #00cc6a);
+  color: #0a0a12;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mode-play-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 255, 136, 0.4);
+}
+
 .chase-grid .song-card-chase {
   grid-column: auto;
 }

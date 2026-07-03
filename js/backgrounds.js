@@ -10,6 +10,7 @@ const THEME_MAP = {
   rock: 'concert',
   endless: 'void',
   chase: 'chase',
+  bullethell: 'bullethell',
 };
 
 class BackgroundRenderer {
@@ -50,6 +51,7 @@ class BackgroundRenderer {
       case 'concert': this.drawConcert(ctx, w, h); break;
       case 'void': this.drawVoid(ctx, w, h); break;
       case 'chase': this.drawChase(ctx, w, h); break;
+      case 'bullethell': this.drawBulletHell(ctx, w, h); break;
       default: this.drawCyberpunk(ctx, w, h);
     }
   }
@@ -496,6 +498,37 @@ class BackgroundRenderer {
     ctx.fillText('CHASE MODE', w * 0.82, h * 0.06);
     ctx.fillStyle = 'rgba(0, 240, 255, 0.1)';
     ctx.fillText(`T+${Math.floor(this.t)}`, w * 0.04, h * 0.95);
+  }
+
+  drawBulletHell(ctx, w, h) {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#1a0510');
+    g.addColorStop(0.5, '#120818');
+    g.addColorStop(1, '#0a0614');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    for (let i = 0; i < 30; i++) {
+      const px = ((i * 73 + this.t * 40) % 1) * w;
+      const py = ((i * 41 + this.t * 22) % 1) * h;
+      ctx.fillStyle = `rgba(255, 68, 102, ${0.1 + Math.sin(this.t + i) * 0.06})`;
+      ctx.fillRect(px, py, 2, 8);
+    }
+
+    ctx.strokeStyle = 'rgba(255, 204, 0, 0.08)';
+    for (let y = 0; y < h; y += 50) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    const pulse = 0.12 + Math.sin(this.t * 3) * 0.05;
+    ctx.fillStyle = `rgba(255, 68, 102, ${pulse})`;
+    ctx.fillRect(0, 0, w, 4);
+    ctx.font = '10px Orbitron, sans-serif';
+    ctx.fillStyle = 'rgba(255, 204, 0, 0.2)';
+    ctx.fillText('BULLET HELL', w * 0.82, h * 0.05);
   }
 }
 
