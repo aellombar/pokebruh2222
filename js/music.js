@@ -203,17 +203,63 @@ function scheduleHipHop(ctx, dest, start, beat, beatDur) {
 function scheduleEndless(ctx, dest, start, beat, beatDur) {
   const t = start + beat * beatDur;
   const pos = beat % 4;
-  const bar = Math.floor(beat / 4) % 4;
+  const bar = Math.floor(beat / 4) % 8;
 
-  if (pos === 0) playKick(ctx, dest, t, 0.7);
-  if (pos === 2) playSnare(ctx, dest, t, 0.32);
-  if (beat % 2 === 0) playHiHat(ctx, dest, t, 0.06);
+  if (pos === 0) playKick(ctx, dest, t, 0.75);
+  if (pos === 2) playSnare(ctx, dest, t, 0.34);
+  playHiHat(ctx, dest, t, 0.07);
+  if (beat % 2 === 0) playHiHat(ctx, dest, t + beatDur * 0.5, 0.05);
 
-  const bass = [NOTE.C3, NOTE.E3, NOTE.G3, NOTE.A3];
-  if (pos === 0) playBass(ctx, dest, t, bass[bar], 0.28, beatDur * 1.5);
+  const bassLine = [NOTE.C3, NOTE.E3, NOTE.G3, NOTE.A3, NOTE.F3, NOTE.D3, NOTE.G3, NOTE.C3];
+  if (pos === 0) playBass(ctx, dest, t, bassLine[bar], 0.32, beatDur * 1.7);
 
-  if (beat % 4 === 1) {
-    playOsc(ctx, dest, t, NOTE.C5, 'square', beatDur * 0.2, 0.05, NOTE.G4);
+  const lead = [NOTE.C5, NOTE.E5, NOTE.G5, NOTE.A5, NOTE.G5, NOTE.E5, NOTE.D5, NOTE.C5];
+  if (beat % 2 === 0) {
+    playOsc(ctx, dest, t, lead[bar], 'square', beatDur * 0.35, 0.055, lead[bar] * 0.98);
+  }
+
+  const padChords = [
+    [NOTE.C4, NOTE.E4, NOTE.G4],
+    [NOTE.A3, NOTE.C4, NOTE.E4],
+    [NOTE.F3, NOTE.A3, NOTE.C4],
+    [NOTE.G3, NOTE.B3, NOTE.D4],
+  ];
+  if (pos === 0) playChord(ctx, dest, t, padChords[bar % 4], 'triangle', 0.05, beatDur * 3.6);
+
+  if (bar % 4 === 2 && pos === 1) {
+    playOsc(ctx, dest, t, NOTE.C6, 'sine', beatDur * 0.25, 0.04, NOTE.G5);
+  }
+}
+
+function scheduleChase(ctx, dest, start, beat, beatDur) {
+  const t = start + beat * beatDur;
+  const pos = beat % 4;
+  const bar = Math.floor(beat / 4) % 8;
+
+  if (pos === 0) playKick(ctx, dest, t, 0.8);
+  if (pos === 2) playSnare(ctx, dest, t, 0.38);
+  playHiHat(ctx, dest, t, 0.08);
+  if (beat % 2 === 1) playHiHat(ctx, dest, t + beatDur * 0.5, 0.06);
+
+  const chaseBass = [NOTE.C3, NOTE.C3, NOTE.G3, NOTE.A3, NOTE.F3, NOTE.G3, NOTE.E3, NOTE.C3];
+  if (pos === 0) playBass(ctx, dest, t, chaseBass[bar], 0.34, beatDur * 1.6);
+
+  const chaseArp = [NOTE.C5, NOTE.E5, NOTE.G5, NOTE.B5, NOTE.A5, NOTE.G5, NOTE.E5, NOTE.D5];
+  if (beat % 2 === 0) {
+    playOsc(ctx, dest, t, chaseArp[beat % chaseArp.length], 'square', beatDur * 0.3, 0.065);
+  }
+
+  if (pos === 1 || pos === 3) {
+    playOsc(ctx, dest, t, NOTE.G4, 'sawtooth', beatDur * 0.15, 0.04, NOTE.C5);
+  }
+
+  const stabs = [NOTE.C4, NOTE.E4, NOTE.G4, NOTE.A4];
+  if (bar % 2 === 0 && pos === 0) {
+    playChord(ctx, dest, t, [stabs[bar % 4], stabs[bar % 4] * 1.25, stabs[bar % 4] * 1.5], 'triangle', 0.06, beatDur * 2.5);
+  }
+
+  if (bar === 0 && pos === 0 && beat > 0) {
+    playOsc(ctx, dest, t, NOTE.C6, 'sine', beatDur * 0.4, 0.07, NOTE.G5);
   }
 }
 
@@ -224,13 +270,13 @@ const ENDLESS_SONG = {
   difficulty: 0,
   difficultyLabel: '∞',
   isEndless: true,
-  bpm: 130,
+  bpm: 132,
   duration: 99999,
   approachBeats: 2.5,
   noteInterval: 4,
   color: '#ff00ff',
   accent: '#00ffff',
-  instruments: ['Driving Beat', 'Rising Tempo', 'Random Windows', 'No Mercy'],
+  instruments: ['Driving Beat', 'Synth Lead', 'Pad Chords', 'Rising Tempo'],
   description: 'Survive as long as you can — speed ramps up forever.',
   schedule: scheduleEndless,
 };
@@ -243,15 +289,15 @@ const CHASE_SONG = {
   difficultyLabel: 'Mouse',
   isChase: true,
   isEndless: true,
-  bpm: 120,
+  bpm: 136,
   duration: 99999,
   approachBeats: 2.5,
   noteInterval: 4,
   color: '#00ff88',
   accent: '#ff6b9d',
-  instruments: ['Mouse Tracking', 'Fade Timer', 'Speed Ramp', 'Precision Clicks'],
+  instruments: ['Chase Arp', 'Punchy Drums', 'Synth Stabs', 'Speed Ramp'],
   description: 'Move your cursor onto each shape and click before it fades away.',
-  schedule: scheduleEndless,
+  schedule: scheduleChase,
 };
 
 // ─── Song definitions ────────────────────────────────────────────
