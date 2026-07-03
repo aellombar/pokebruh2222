@@ -438,6 +438,17 @@ body {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 25px rgba(0, 255, 136, 0.25);
 }
 
+.chase-grid .song-card-chase {
+  grid-column: auto;
+}
+
+#chase-select-screen .select-header h2 {
+  background: linear-gradient(135deg, #00ff88, #ff6b9d);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 #game-area {
   flex: 1;
   width: 100%;

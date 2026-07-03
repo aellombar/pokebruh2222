@@ -26,6 +26,59 @@ const CONFIG = {
   chaseBaseFade: 2800,
   chaseMinFade: 1200,
   chaseHoverRadius: 22,
+  chaseTriplePerfect: 3,
+};
+
+const CHASE_MODES = {
+  'chase-easy': {
+    id: 'chase-easy',
+    title: 'Cursor Chase — Easy',
+    label: 'Easy',
+    baseFade: 3400,
+    minFade: 2000,
+    speedRamp: 0.016,
+    maxSimultaneous: 1,
+    spawnInterval: 450,
+    missLimit: 12,
+    bonusCount: 2,
+  },
+  'chase-medium': {
+    id: 'chase-medium',
+    title: 'Cursor Chase — Medium',
+    label: 'Medium',
+    baseFade: 2700,
+    minFade: 1500,
+    speedRamp: 0.026,
+    maxSimultaneous: 1,
+    spawnInterval: 300,
+    missLimit: 10,
+    bonusCount: 2,
+  },
+  'chase-hard': {
+    id: 'chase-hard',
+    title: 'Cursor Chase — Hard',
+    label: 'Hard',
+    baseFade: 2200,
+    minFade: 1100,
+    speedRamp: 0.036,
+    maxSimultaneous: 2,
+    spawnInterval: 220,
+    missLimit: 8,
+    bonusCount: 3,
+  },
+  'chase-endless': {
+    id: 'chase-endless',
+    title: 'Cursor Chase — Endless',
+    label: 'Endless',
+    baseFade: 3000,
+    minFade: 900,
+    speedRamp: 0.042,
+    maxSimultaneous: 2,
+    spawnInterval: 380,
+    missLimit: 10,
+    bonusCount: 3,
+    isEndless: true,
+  },
 };
 
 const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond', 'star', 'rhombus'];
@@ -64,8 +117,24 @@ function getEndlessApproachTime(elapsedSec) {
 }
 
 function getChaseFadeDuration(elapsedSec) {
-  const factor = 1 + elapsedSec * 0.028;
-  return Math.max(CONFIG.chaseMinFade, CONFIG.chaseBaseFade / factor);
+  const diff = state.chaseDifficulty;
+  if (!diff) return CONFIG.chaseBaseFade;
+  const factor = 1 + elapsedSec * diff.speedRamp + state.speedLevel * 0.1;
+  return Math.max(diff.minFade, diff.baseFade / factor);
+}
+
+function getChaseSimultaneousCount(elapsedSec) {
+  const diff = state.chaseDifficulty;
+  if (!diff) return 1;
+  if (diff.id === 'chase-endless') {
+    return Math.min(5, diff.maxSimultaneous + Math.floor(elapsedSec / 20));
+  }
+  return diff.maxSimultaneous;
+}
+
+function getChaseSpawnGap(elapsedSec) {
+  const diff = state.chaseDifficulty;
+  return Math.max(60, diff.spawnInterval - elapsedSec * 4);
 }
 
 function getCanvasCoords(clientX, clientY) {
@@ -109,6 +178,10 @@ const state = {
   nextSpawnAt: 0,
   gameStartTime: 0,
   chaseMode: false,
+  chaseDifficulty: null,
+  chaseNotes: [],
+  chasePerfectStreak: 0,
+  triplePerfectFlash: 0,
   mouseX: 0,
   mouseY: 0,
   mouseOnCanvas: false,
@@ -119,6 +192,7 @@ const state = {
 const screens = {
   start: document.getElementById('start-screen'),
   select: document.getElementById('select-screen'),
+  chaseSelect: document.getElementById('chase-select-screen'),
   game: document.getElementById('game-screen'),
   results: document.getElementById('results-screen'),
 };
@@ -508,7 +582,142 @@ function drawFireworks() {
   }
 }
 function hasActiveNote() {
+  if (state.chaseMode) {
+    return state.chaseNotes.some(n => !n.clicked && !n.removed);
+  }
   return state.currentNote !== null;
+}
+
+function chaseRandomPosition(existing) {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const pos = randomPosition();
+    const crowded = existing.some(n =>
+      !n.removed && Math.hypot(n.x - pos.x, n.y - pos.y) < CONFIG.shapeSize * 3.2
+    );
+    if (!crowded) return pos;
+  }
+  return randomPosition();
+}
+
+function createChaseNote(hitTime, approachTime, pos, isBonus = false) {
+  const windows = rollTimingWindows();
+  return {
+    id: state.totalNotes++,
+    x: pos.x,
+    y: pos.y,
+    shape: SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)],
+    approachTime: isBonus ? approachTime * 1.15 : approachTime,
+    hitTime,
+    perfectWindow: windows.perfectWindow,
+    goodWindow: windows.goodWindow,
+    hit: false,
+    missed: false,
+    clicked: false,
+    clickTime: 0,
+    rating: null,
+    removed: false,
+    isBonus,
+  };
+}
+
+function spawnChaseNotes(now, count = 1, isBonus = false) {
+  const elapsed = (now - state.gameStartTime) / 1000;
+  const fadeDuration = getChaseFadeDuration(elapsed);
+  const approachTime = fadeDuration * 0.88;
+  const active = state.chaseNotes.filter(n => !n.removed);
+  const staggerMs = state.chaseDifficulty?.isEndless ? 220 : 140;
+
+  for (let i = 0; i < count; i++) {
+    const pos = chaseRandomPosition(active);
+    const stagger = i * staggerMs;
+    const note = createChaseNote(now + approachTime + stagger, approachTime, pos, isBonus);
+    state.chaseNotes.push(note);
+    active.push(note);
+  }
+}
+
+function updateChaseSpawns(now) {
+  if (!state.chaseMode || !state.chaseDifficulty) return;
+  const elapsed = (now - state.gameStartTime) / 1000;
+  const target = getChaseSimultaneousCount(elapsed);
+  const active = state.chaseNotes.filter(n => !n.clicked && !n.removed);
+
+  if (active.length < target && now >= state.nextSpawnAt) {
+    spawnChaseNotes(now, target - active.length);
+    state.nextSpawnAt = now + getChaseSpawnGap(elapsed);
+  }
+}
+
+function triggerTriplePerfectBonus(note) {
+  state.triplePerfectFlash = 1;
+  showFeedback('TRIPLE PERFECT! BONUS!', 'perfect');
+  playConstellationSound();
+
+  const w = els.canvas.width;
+  const h = els.canvas.height;
+  const burstPoints = [
+    { x: note.x, y: note.y },
+    { x: w * 0.25, y: h * 0.3 },
+    { x: w * 0.75, y: h * 0.35 },
+    { x: w * 0.5, y: h * 0.65 },
+  ];
+  spawnFireworks(burstPoints);
+
+  const count = state.chaseDifficulty?.bonusCount || 2;
+  spawnChaseNotes(performance.now(), count, true);
+
+  const color = state.song?.color || '#00ff88';
+  for (let i = 0; i < 24; i++) {
+    const angle = (Math.PI * 2 * i) / 24;
+    state.particles.push({
+      x: note.x, y: note.y,
+      vx: Math.cos(angle) * (4 + Math.random() * 6),
+      vy: Math.sin(angle) * (4 + Math.random() * 6),
+      life: 1,
+      color,
+    });
+  }
+}
+
+function cleanupChaseNotes(now) {
+  for (const note of state.chaseNotes) {
+    if (note.removed) continue;
+
+    if (!note.clicked && now > note.hitTime + note.goodWindow) {
+      resolveNote(note, 'late');
+      registerChaseHit('late', note);
+    }
+
+    if (note.clicked) {
+      const fadeDur = note.hit ? CONFIG.hitFadeMs : CONFIG.missFadeMs;
+      if (now - note.clickTime > fadeDur) note.removed = true;
+    } else if (note.missed && now - note.hitTime > CONFIG.missFadeMs) {
+      note.removed = true;
+    }
+  }
+  state.chaseNotes = state.chaseNotes.filter(n => !n.removed);
+}
+
+function registerChaseHit(rating, note) {
+  if (rating === 'perfect') {
+    state.chasePerfectStreak++;
+    if (state.chasePerfectStreak >= CONFIG.chaseTriplePerfect) {
+      triggerTriplePerfectBonus(note);
+      state.chasePerfectStreak = 0;
+    }
+  } else {
+    state.chasePerfectStreak = 0;
+  }
+  registerHit(rating, note);
+}
+
+function getNearestChaseNote(mx, my) {
+  const candidates = state.chaseNotes.filter(n => !n.clicked && !n.removed);
+  if (!candidates.length) return null;
+  return candidates.reduce((best, n) => {
+    const d = Math.hypot(n.x - mx, n.y - my);
+    return !best || d < best.dist ? { note: n, dist: d } : best;
+  }, null)?.note || null;
 }
 
 function spawnNote(hitTime, approachTime, beatEntry = null) {
@@ -547,18 +756,11 @@ function spawnEndlessNote(now) {
 }
 
 function spawnChaseNote(now) {
-  const elapsed = (now - state.gameStartTime) / 1000;
-  const fadeDuration = getChaseFadeDuration(elapsed);
-  const approachTime = fadeDuration * 0.88;
-  spawnNote(now + approachTime, approachTime);
+  spawnChaseNotes(now, 1);
 }
 
 function trySpawnChase(now) {
-  if (!state.chaseMode || hasActiveNote() || !state.endlessWaiting) return;
-  if (now >= state.nextSpawnAt) {
-    state.endlessWaiting = false;
-    spawnChaseNote(now);
-  }
+  updateChaseSpawns(now);
 }
 
 function trySpawnEndless(now) {
@@ -628,22 +830,28 @@ function calculatePoints(rating) {
 }
 
 function registerHit(rating, note) {
-  if (note) onPatternHit(rating, note);
+  if (note && !state.chaseMode) onPatternHit(rating, note);
+
+  const missLimit = state.chaseMode && state.chaseDifficulty
+    ? state.chaseDifficulty.missLimit
+    : CONFIG.missLimit;
 
   if (rating === 'miss') {
     state.misses++;
     state.combo = 0;
     state.perfectHitStreak = 0;
+    if (!state.chaseMode) state.chasePerfectStreak = 0;
     updateComboDisplay();
     showFeedback(pickRandom(MISS_WORDS), 'miss');
     playHitSound('miss');
-    if (state.misses >= CONFIG.missLimit) endGame();
+    if (state.misses >= missLimit) endGame();
     return;
   }
 
   if (rating === 'early' || rating === 'late') {
     state.combo = 0;
     state.perfectHitStreak = 0;
+    if (!state.chaseMode) state.chasePerfectStreak = 0;
     if (rating === 'early') state.earlys++;
     else state.lates++;
     updateComboDisplay();
@@ -674,8 +882,50 @@ function registerHit(rating, note) {
   if (note) spawnParticles(note.x, note.y);
 }
 
+function handleChaseInput(clientX, clientY) {
+  let mx = state.mouseX;
+  let my = state.mouseY;
+  if (clientX !== undefined && clientY !== undefined) {
+    const pos = getCanvasCoords(clientX, clientY);
+    mx = pos.x;
+    my = pos.y;
+  }
+
+  const note = getNearestChaseNote(mx, my);
+  if (!note || !isMouseOnNote(note, mx, my)) {
+    showFeedback('MOVE TO SHAPE!', 'miss');
+    return;
+  }
+
+  const now = performance.now();
+  const diff = now - note.hitTime;
+  const { goodWindow, perfectWindow } = note;
+
+  if (Math.abs(diff) > goodWindow) {
+    resolveNote(note, diff < 0 ? 'early' : 'miss');
+    registerChaseHit(diff < 0 ? 'early' : 'miss', note);
+    return;
+  }
+
+  if (Math.abs(diff) <= perfectWindow) {
+    resolveNote(note, 'perfect');
+    registerChaseHit('perfect', note);
+  } else if (diff < 0) {
+    resolveNote(note, 'early');
+    registerChaseHit('early', note);
+  } else {
+    resolveNote(note, 'late');
+    registerChaseHit('late', note);
+  }
+}
+
 function handleInput(clientX, clientY) {
   if (!state.running) return;
+
+  if (state.chaseMode) {
+    handleChaseInput(clientX, clientY);
+    return;
+  }
 
   const note = state.currentNote;
   if (!note || note.clicked) return;
@@ -686,13 +936,6 @@ function handleInput(clientX, clientY) {
     const pos = getCanvasCoords(clientX, clientY);
     mx = pos.x;
     my = pos.y;
-  }
-
-  if (state.chaseMode && !isMouseOnNote(note, mx, my)) {
-    resolveNote(note, 'miss');
-    registerHit('miss');
-    showFeedback('MOVE TO SHAPE!', 'miss');
-    return;
   }
 
   const now = performance.now();
@@ -769,22 +1012,18 @@ function drawNote(note, now) {
     const hovering = state.mouseOnCanvas && isMouseOnNote(note, state.mouseX, state.mouseY);
     const fadeUrgency = Math.max(0, (progress - 0.5) / 0.5);
     ctx.globalAlpha = 1 - fadeUrgency * 0.35;
+    if (note.isBonus) {
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 15;
+    }
     if (hovering) {
       ctx.beginPath();
       ctx.arc(note.x, note.y, targetSize + 28, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(0, 255, 136, 0.6)';
+      ctx.strokeStyle = note.isBonus ? 'rgba(255, 215, 0, 0.8)' : 'rgba(0, 255, 136, 0.6)';
       ctx.lineWidth = 3;
       ctx.stroke();
-    } else {
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.moveTo(state.mouseX, state.mouseY);
-      ctx.lineTo(note.x, note.y);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.setLineDash([]);
     }
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
   }
 
@@ -819,6 +1058,17 @@ function drawNote(note, now) {
 
 function drawChaseCursor() {
   if (!state.chaseMode || !state.mouseOnCanvas) return;
+  const nearest = getNearestChaseNote(state.mouseX, state.mouseY);
+  if (nearest && !nearest.clicked) {
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(state.mouseX, state.mouseY);
+    ctx.lineTo(nearest.x, nearest.y);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
   ctx.beginPath();
   ctx.arc(state.mouseX, state.mouseY, 8, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(0, 255, 136, 0.5)';
@@ -828,6 +1078,14 @@ function drawChaseCursor() {
   ctx.arc(state.mouseX, state.mouseY, 3, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(0, 255, 136, 0.8)';
   ctx.fill();
+
+  if (state.triplePerfectFlash > 0) {
+    ctx.strokeStyle = `rgba(255, 215, 0, ${state.triplePerfectFlash * 0.6})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(state.mouseX, state.mouseY, 30 + (1 - state.triplePerfectFlash) * 40, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 function drawParticles() {
@@ -854,6 +1112,7 @@ function render(now) {
     trySpawnEndless(now);
   } else if (state.chaseMode) {
     trySpawnChase(now);
+    cleanupChaseNotes(now);
   } else {
     skipMissedBeats(now);
   }
@@ -869,22 +1128,44 @@ function render(now) {
     }
   }
 
-  const note = state.currentNote;
-  if (note && !note.clicked && now > note.hitTime + note.goodWindow) {
-    resolveNote(note, 'late');
-    registerHit('late');
+  if (state.triplePerfectFlash > 0) {
+    state.triplePerfectFlash -= 0.025;
+    if (state.triplePerfectFlash < 0) state.triplePerfectFlash = 0;
   }
 
-  if (note) {
-    drawNote(note, now);
-    const fadeStart = note.clickTime || note.hitTime;
-    if (note.clicked && note.hit && now - fadeStart > CONFIG.hitFadeMs) finishCurrentNote();
-    else if (note.clicked && note.missed && now - fadeStart > CONFIG.missFadeMs) finishCurrentNote();
-    else if (!note.clicked && note.missed && now - note.hitTime > CONFIG.missFadeMs) finishCurrentNote();
+  if (state.chaseMode) {
+    for (const note of state.chaseNotes) {
+      if (!note.removed) drawNote(note, now);
+    }
+  } else {
+    const note = state.currentNote;
+    if (note && !note.clicked && now > note.hitTime + note.goodWindow) {
+      resolveNote(note, 'late');
+      registerHit('late');
+    }
+
+    if (note) {
+      drawNote(note, now);
+      const fadeStart = note.clickTime || note.hitTime;
+      if (note.clicked && note.hit && now - fadeStart > CONFIG.hitFadeMs) finishCurrentNote();
+      else if (note.clicked && note.missed && now - fadeStart > CONFIG.missFadeMs) finishCurrentNote();
+      else if (!note.clicked && note.missed && now - note.hitTime > CONFIG.missFadeMs) finishCurrentNote();
+    }
   }
 
   drawParticles();
   drawFireworks();
+
+  if (state.triplePerfectFlash > 0) {
+    const alpha = state.triplePerfectFlash * 0.22;
+    const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
+    grad.addColorStop(0, `rgba(255, 215, 0, ${alpha})`);
+    grad.addColorStop(0.5, `rgba(255, 107, 157, ${alpha * 0.5})`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
   if (state.chaseMode) drawChaseCursor();
 }
 
@@ -920,7 +1201,7 @@ function updateProgress() {
     els.progressFill.style.width = `${((sec % 45) / 45) * 100}%`;
     if (els.progressLabel) {
       els.progressLabel.textContent = state.chaseMode
-        ? sec + 's · chase'
+        ? sec + 's · ' + (state.chaseDifficulty?.label || 'chase')
         : sec + 's survived';
     }
     return;
@@ -944,7 +1225,10 @@ function gameLoop() {
     if (!hasActiveNote()) { endGame(); return; }
   }
 
-  if (state.misses >= CONFIG.missLimit) return;
+  const missLimit = state.chaseMode && state.chaseDifficulty
+    ? state.chaseDifficulty.missLimit
+    : CONFIG.missLimit;
+  if (state.misses >= missLimit) return;
 
   requestAnimationFrame(gameLoop);
 }
@@ -969,6 +1253,10 @@ function resetGameState() {
   state.constellationGlow = 0;
   state.endlessMode = false;
   state.chaseMode = false;
+  state.chaseDifficulty = null;
+  state.chaseNotes = [];
+  state.chasePerfectStreak = 0;
+  state.triplePerfectFlash = 0;
   state.endlessWaiting = false;
   state.mouseOnCanvas = false;
   state.nextSpawnAt = 0;
@@ -977,17 +1265,40 @@ function resetGameState() {
   state.beatQueueIndex = 0;
 }
 
+function startChaseGame(modeId) {
+  const mode = CHASE_MODES[modeId];
+  if (!mode) return;
+  startGame(modeId);
+}
+
 function startGame(songId) {
   initAudio();
   resetGameState();
 
   state.selectedSongId = songId || state.selectedSongId;
-  state.song = songPlayer.getSong(state.selectedSongId);
-  state.endlessMode = !!(state.song.isEndless || state.song.isChase);
-  state.chaseMode = !!state.song.isChase;
-  state.gameStartTime = performance.now();
 
-  backgroundRenderer.setTheme(state.selectedSongId);
+  if (CHASE_MODES[songId]) {
+    state.chaseDifficulty = CHASE_MODES[songId];
+    state.chaseMode = true;
+    state.endlessMode = true;
+    state.song = {
+      ...CHASE_SONG,
+      id: songId,
+      title: state.chaseDifficulty.title,
+      isChase: true,
+      isEndless: !!state.chaseDifficulty.isEndless,
+    };
+  } else {
+    state.song = songPlayer.getSong(state.selectedSongId);
+    state.endlessMode = !!(state.song.isEndless && !state.song.isChase);
+    state.chaseMode = false;
+    state.chaseDifficulty = null;
+  }
+
+  state.gameStartTime = performance.now();
+  state.nextSpawnAt = performance.now();
+
+  backgroundRenderer.setTheme(state.chaseMode ? 'chase' : state.selectedSongId);
 
   if (state.endlessMode || state.chaseMode) {
     state.beatQueue = [];
@@ -1022,10 +1333,13 @@ function startGame(songId) {
   showScreen('game');
   resizeCanvas();
 
-  if (state.endlessMode) {
+  if (state.chaseMode) {
+    state.chaseNotes = [];
+    spawnChaseNotes(performance.now(), getChaseSimultaneousCount(0));
+    state.nextSpawnAt = performance.now() + getChaseSpawnGap(0);
+  } else if (state.endlessMode) {
     state.endlessWaiting = false;
-    if (state.chaseMode) spawnChaseNote(performance.now());
-    else spawnEndlessNote(performance.now());
+    spawnEndlessNote(performance.now());
   } else {
     const firstBeat = state.beatQueue[0];
     if (firstBeat) {
@@ -1100,7 +1414,7 @@ function buildLevelSelect() {
     <span class="song-instruments">${CHASE_SONG.instruments.join(' · ')}</span>
     <span class="song-desc">${CHASE_SONG.description}</span>
   `;
-  chaseCard.addEventListener('click', () => startGame('chase'));
+  chaseCard.addEventListener('click', () => showScreen('chaseSelect'));
   els.songGrid.appendChild(chaseCard);
 
   SONGS.forEach(song => {
@@ -1124,10 +1438,40 @@ function buildLevelSelect() {
   });
 }
 
+function buildChaseSelect() {
+  const grid = document.getElementById('chase-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  Object.values(CHASE_MODES).forEach(mode => {
+    const card = document.createElement('button');
+    card.className = 'song-card song-card-chase';
+    card.style.setProperty('--song-color', CHASE_SONG.color);
+    card.style.setProperty('--song-accent', CHASE_SONG.accent);
+    const stars = mode.id === 'chase-endless' ? '∞' : '★'.repeat(
+      mode.id === 'chase-easy' ? 1 : mode.id === 'chase-medium' ? 2 : 3
+    );
+    card.innerHTML = `
+      <div class="song-card-top">
+        <span class="song-genre">${mode.label}</span>
+        <span class="song-difficulty">${stars}</span>
+      </div>
+      <span class="song-name">${mode.title}</span>
+      <span class="song-meta">${mode.maxSimultaneous} shape${mode.maxSimultaneous > 1 ? 's' : ''} · speed ramps up</span>
+      <span class="song-desc">${mode.id === 'chase-endless'
+        ? 'Multiple shapes at once — up to 5 as you survive'
+        : 'Move cursor onto shapes and click before they fade'}</span>
+    `;
+    card.addEventListener('click', () => startChaseGame(mode.id));
+    grid.appendChild(card);
+  });
+}
+
 // ─── Event Listeners ─────────────────────────────────────────────
 document.getElementById('start-btn').addEventListener('click', () => showScreen('select'));
 document.getElementById('retry-btn').addEventListener('click', () => startGame(state.selectedSongId));
-document.getElementById('back-btn').addEventListener('click', () => showScreen('start'));
+const chaseBackBtn = document.getElementById('chase-back-btn');
+if (chaseBackBtn) chaseBackBtn.addEventListener('click', () => showScreen('select'));
 document.getElementById('select-back-btn').addEventListener('click', () => showScreen('select'));
 
 els.canvas.addEventListener('click', (e) => handleInput(e.clientX, e.clientY));
@@ -1157,4 +1501,5 @@ window.addEventListener('resize', () => {
 });
 
 buildLevelSelect();
+buildChaseSelect();
 resizeCanvas();
