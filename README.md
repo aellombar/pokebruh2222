@@ -6,10 +6,10 @@ A browser-based rhythm click game. Hit the beat when the outer ring meets the in
 
 1. Open `index.html` in a web browser (or run a local server — see below).
 2. Click **Start Game** or press **Space**.
-3. When a magenta ring shrinks onto a cyan circle, **click** (or press **Space**) at the exact moment they overlap.
-4. **Perfect** hits earn full points; **Good** hits earn half. **Miss** and your combo resets.
-5. Each consecutive hit increases your combo multiplier — points stack: hit 1 = 100, hit 2 = 200, hit 3 = 300, and so on.
-6. The game lasts 60 seconds. Too many misses ends the round early.
+3. Watch as **outer line outlines shrink inward** onto target shapes (circles, squares, triangles, hexagons, diamonds).
+4. **Click** (or press **Space**) when the shrinking lines perfectly line up with the inner shape.
+5. **Perfect** timing earns points and builds your combo. **Early** or **Late** resets your combo.
+6. A **progress bar** at the bottom tracks your remaining time. The game lasts 60 seconds.
 
 ## Run Locally
 

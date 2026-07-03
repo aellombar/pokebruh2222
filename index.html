@@ -20,15 +20,19 @@
       <div class="instructions">
         <div class="instruction-item">
           <span class="key">CLICK</span>
-          <span>or press <strong>SPACE</strong> when the ring meets the circle</span>
+          <span>or press <strong>SPACE</strong> when the outer lines shrink onto the shape</span>
         </div>
         <div class="instruction-item">
           <span class="rating perfect">PERFECT</span>
-          <span>Dead-on timing — max points</span>
+          <span>Lines lined up exactly — max points</span>
         </div>
         <div class="instruction-item">
-          <span class="rating good">GOOD</span>
-          <span>Close enough — still counts</span>
+          <span class="rating early">EARLY</span>
+          <span>Pressed too soon — combo resets</span>
+        </div>
+        <div class="instruction-item">
+          <span class="rating late">LATE</span>
+          <span>Pressed too late — combo resets</span>
         </div>
         <div class="instruction-item combo-hint">
           <span>🔥</span>
@@ -66,8 +70,14 @@
         <div id="feedback" class="feedback hidden"></div>
       </div>
 
-      <div class="progress-bar">
-        <div id="progress-fill" class="progress-fill"></div>
+      <div class="progress-container">
+        <div class="progress-header">
+          <span class="progress-title">TIME</span>
+          <span id="progress-label" class="progress-time">60s</span>
+        </div>
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
       </div>
     </div>
 

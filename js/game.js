@@ -1,22 +1,23 @@
 /**
  * Beat Strike — Rhythm Click Game
- * Click when the approach ring meets the target circle.
- * Chain successful hits to stack combo points.
+ * Shrinking line outlines converge on target shapes — press when they align.
  */
 
 // ─── Configuration ───────────────────────────────────────────────
 const CONFIG = {
   bpm: 128,
-  gameDuration: 60,          // seconds
-  approachTime: 1500,        // ms for ring to shrink to target
-  perfectWindow: 80,         // ms tolerance for perfect
-  goodWindow: 160,           // ms tolerance for good
+  gameDuration: 60,
+  approachTime: 1600,
+  perfectWindow: 70,
+  goodWindow: 140,
   basePoints: 100,
-  noteRadius: 50,
-  approachStartScale: 3.5,
-  spawnMargin: 80,           // keep notes away from edges
-  missLimit: 10,             // game ends after this many misses
+  shapeSize: 58,
+  approachStartScale: 3.2,
+  spawnMargin: 100,
+  missLimit: 10,
 };
+
+const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond'];
 
 // ─── Game State ──────────────────────────────────────────────────
 const state = {
@@ -26,6 +27,8 @@ const state = {
   bestCombo: 0,
   perfects: 0,
   goods: 0,
+  earlys: 0,
+  lates: 0,
   misses: 0,
   totalNotes: 0,
   startTime: 0,
@@ -49,6 +52,7 @@ const els = {
   bestCombo: document.getElementById('best-combo'),
   feedback: document.getElementById('feedback'),
   progressFill: document.getElementById('progress-fill'),
+  progressLabel: document.getElementById('progress-label'),
   canvas: document.getElementById('game-canvas'),
   finalScore: document.getElementById('final-score'),
   finalCombo: document.getElementById('final-combo'),
@@ -91,9 +95,9 @@ function playTone(freq, duration = 0.1, type = 'sine', volume = 0.15) {
 }
 
 function playHitSound(rating) {
-  const tones = { perfect: 880, good: 660, miss: 220 };
-  const types = { perfect: 'sine', good: 'triangle', miss: 'sawtooth' };
-  playTone(tones[rating], rating === 'miss' ? 0.2 : 0.12, types[rating], 0.12);
+  const tones = { perfect: 880, good: 660, early: 600, late: 600, miss: 220 };
+  const types = { perfect: 'sine', good: 'triangle', early: 'triangle', late: 'triangle', miss: 'sawtooth' };
+  playTone(tones[rating] || 220, rating === 'miss' ? 0.2 : 0.12, types[rating] || 'sawtooth', 0.12);
 }
 
 function playBeatTick() {
@@ -107,16 +111,69 @@ function resizeCanvas() {
   els.canvas.height = area.clientHeight;
 }
 
+// ─── Shape Drawing ───────────────────────────────────────────────
+function traceShape(type, size) {
+  const s = size;
+  switch (type) {
+    case 'circle':
+      ctx.arc(0, 0, s, 0, Math.PI * 2);
+      break;
+    case 'square':
+      ctx.rect(-s, -s, s * 2, s * 2);
+      break;
+    case 'triangle':
+      ctx.moveTo(0, -s);
+      ctx.lineTo(s * 0.866, s * 0.5);
+      ctx.lineTo(-s * 0.866, s * 0.5);
+      ctx.closePath();
+      break;
+    case 'hexagon':
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i - Math.PI / 2;
+        const px = Math.cos(angle) * s;
+        const py = Math.sin(angle) * s;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      break;
+    case 'diamond':
+      ctx.moveTo(0, -s);
+      ctx.lineTo(s * 0.65, 0);
+      ctx.lineTo(0, s);
+      ctx.lineTo(-s * 0.65, 0);
+      ctx.closePath();
+      break;
+  }
+}
+
+function drawShapeOutline(x, y, type, size, color, lineWidth, fill = null) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  traceShape(type, size);
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  ctx.restore();
+}
+
 // ─── Note Spawning ───────────────────────────────────────────────
 function spawnNote() {
   const w = els.canvas.width;
   const h = els.canvas.height;
-  const margin = CONFIG.spawnMargin + CONFIG.noteRadius * CONFIG.approachStartScale;
+  const margin = CONFIG.spawnMargin + CONFIG.shapeSize * CONFIG.approachStartScale;
 
   const note = {
     id: state.totalNotes++,
     x: margin + Math.random() * (w - margin * 2),
     y: margin + Math.random() * (h - margin * 2),
+    shape: SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)],
     hitTime: performance.now() + CONFIG.approachTime,
     hit: false,
     missed: false,
@@ -138,24 +195,29 @@ function calculatePoints(rating) {
   return Math.round(base * multiplier);
 }
 
-function registerHit(rating) {
+function registerHit(rating, note) {
   if (rating === 'miss') {
     state.misses++;
     state.combo = 0;
     updateComboDisplay();
     showFeedback('MISS', 'miss');
     playHitSound('miss');
+    if (state.misses >= CONFIG.missLimit) endGame();
+    return;
+  }
 
-    if (state.misses >= CONFIG.missLimit) {
-      endGame();
-    }
+  if (rating === 'early' || rating === 'late') {
+    state.combo = 0;
+    if (rating === 'early') state.earlys++;
+    else state.lates++;
+    updateComboDisplay();
+    showFeedback(rating.toUpperCase(), rating);
+    playHitSound(rating);
     return;
   }
 
   state.combo++;
-  if (state.combo > state.bestCombo) {
-    state.bestCombo = state.combo;
-  }
+  if (state.combo > state.bestCombo) state.bestCombo = state.combo;
 
   const points = calculatePoints(rating);
   state.score += points;
@@ -167,7 +229,7 @@ function registerHit(rating) {
   updateComboDisplay();
   showFeedback(rating.toUpperCase() + ' +' + points, rating);
   playHitSound(rating);
-  spawnParticles();
+  if (note) spawnParticles(note.x, note.y);
 }
 
 // ─── Input Handling ──────────────────────────────────────────────
@@ -180,43 +242,49 @@ function handleInput() {
 
   for (const note of state.notes) {
     if (note.hit || note.missed) continue;
-    const diff = Math.abs(now - note.hitTime);
-    if (diff < closestDiff) {
-      closestDiff = diff;
+    const diff = now - note.hitTime;
+    const absDiff = Math.abs(diff);
+    if (absDiff < closestDiff) {
+      closestDiff = absDiff;
       closestNote = note;
     }
   }
 
-  if (!closestNote || closestDiff > CONFIG.goodWindow) {
+  if (!closestNote) {
     registerHit('miss');
+    return;
+  }
+
+  const diff = now - closestNote.hitTime;
+
+  if (Math.abs(diff) > CONFIG.goodWindow) {
+    registerHit(diff < 0 ? 'early' : 'miss');
     return;
   }
 
   closestNote.hit = true;
 
-  if (closestDiff <= CONFIG.perfectWindow) {
+  if (Math.abs(diff) <= CONFIG.perfectWindow) {
     closestNote.rating = 'perfect';
-    registerHit('perfect');
+    registerHit('perfect', closestNote);
+  } else if (diff < 0) {
+    closestNote.rating = 'early';
+    registerHit('early');
   } else {
-    closestNote.rating = 'good';
-    registerHit('good');
+    closestNote.rating = 'late';
+    registerHit('late');
   }
 }
 
 // ─── Particles ───────────────────────────────────────────────────
-function spawnParticles() {
-  const w = els.canvas.width;
-  const h = els.canvas.height;
-  const cx = w / 2;
-  const cy = h / 2;
-
-  for (let i = 0; i < 12; i++) {
-    const angle = (Math.PI * 2 * i) / 12;
+function spawnParticles(x, y) {
+  for (let i = 0; i < 14; i++) {
+    const angle = (Math.PI * 2 * i) / 14;
     state.particles.push({
-      x: cx,
-      y: cy,
-      vx: Math.cos(angle) * (2 + Math.random() * 4),
-      vy: Math.sin(angle) * (2 + Math.random() * 4),
+      x,
+      y,
+      vx: Math.cos(angle) * (2 + Math.random() * 5),
+      vy: Math.sin(angle) * (2 + Math.random() * 5),
       life: 1,
       color: state.combo > 5
         ? `hsl(${30 + state.combo * 5}, 100%, 60%)`
@@ -228,58 +296,54 @@ function spawnParticles() {
 // ─── Rendering ───────────────────────────────────────────────────
 function drawNote(note, now) {
   const timeLeft = note.hitTime - now;
-  const progress = 1 - timeLeft / CONFIG.approachTime;
-  const approachRadius = CONFIG.noteRadius * (CONFIG.approachStartScale - (CONFIG.approachStartScale - 1) * progress);
+  const progress = Math.min(1, Math.max(0, 1 - timeLeft / CONFIG.approachTime));
+  const targetSize = CONFIG.shapeSize;
+  const approachScale = CONFIG.approachStartScale - (CONFIG.approachStartScale - 1) * progress;
+  const approachSize = targetSize * approachScale;
 
   if (note.hit) {
-    const alpha = Math.max(0, 1 - (now - note.hitTime) / 300);
+    const alpha = Math.max(0, 1 - (now - note.hitTime) / 350);
     if (alpha <= 0) return;
 
     const color = note.rating === 'perfect' ? '#00f0ff' : '#ffd700';
     ctx.globalAlpha = alpha;
-    ctx.beginPath();
-    ctx.arc(note.x, note.y, CONFIG.noteRadius * (1 + (1 - alpha) * 0.5), 0, Math.PI * 2);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    const pulse = 1 + (1 - alpha) * 0.4;
+    drawShapeOutline(note.x, note.y, note.shape, targetSize * pulse, color, 3,
+      `rgba(0, 240, 255, ${alpha * 0.15})`);
     ctx.globalAlpha = 1;
     return;
   }
 
   if (note.missed) {
-    const alpha = Math.max(0, 1 - (now - note.hitTime) / 500);
+    const alpha = Math.max(0, 1 - (now - note.hitTime) / 600);
     if (alpha <= 0) return;
-    ctx.globalAlpha = alpha * 0.5;
-    ctx.beginPath();
-    ctx.arc(note.x, note.y, CONFIG.noteRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = '#ff4466';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 4]);
-    ctx.stroke();
+    ctx.globalAlpha = alpha * 0.45;
+    ctx.setLineDash([6, 6]);
+    drawShapeOutline(note.x, note.y, note.shape, targetSize, '#ff4466', 2);
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
     return;
   }
 
-  // Target circle
-  ctx.beginPath();
-  ctx.arc(note.x, note.y, CONFIG.noteRadius, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0, 240, 255, 0.08)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 240, 255, 0.6)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  // Target shape — static inner outline
+  drawShapeOutline(note.x, note.y, note.shape, targetSize, 'rgba(0, 240, 255, 0.85)', 2.5,
+    'rgba(0, 240, 255, 0.06)');
 
-  // Approach ring
-  ctx.beginPath();
-  ctx.arc(note.x, note.y, approachRadius, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255, 0, 170, 0.7)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
+  // Shrinking approach lines — outer outline converging inward
+  const lineAlpha = 0.5 + progress * 0.5;
+  drawShapeOutline(note.x, note.y, note.shape, approachSize,
+    `rgba(255, 0, 170, ${lineAlpha})`, 3);
 
-  // Inner dot
+  // Alignment flash when close
+  if (progress > 0.85) {
+    const flash = (progress - 0.85) / 0.15;
+    drawShapeOutline(note.x, note.y, note.shape, targetSize,
+      `rgba(255, 255, 255, ${flash * 0.4})`, 1.5);
+  }
+
+  // Center crosshair dot
   ctx.beginPath();
-  ctx.arc(note.x, note.y, 4, 0, Math.PI * 2);
+  ctx.arc(note.x, note.y, 3, 0, Math.PI * 2);
   ctx.fillStyle = '#00f0ff';
   ctx.fill();
 }
@@ -332,21 +396,19 @@ function render(now) {
   for (const note of state.notes) {
     if (!note.hit && !note.missed && now > note.hitTime + CONFIG.goodWindow) {
       note.missed = true;
-      registerHit('miss');
+      registerHit('late');
     }
   }
 
-  // Draw notes
   for (const note of state.notes) {
     drawNote(note, now);
   }
 
   drawParticles();
 
-  // Clean up old notes
   state.notes = state.notes.filter(n => {
     if (n.hit && now - n.hitTime > 400) return false;
-    if (n.missed && now - n.hitTime > 600) return false;
+    if (n.missed && now - n.hitTime > 700) return false;
     return true;
   });
 }
@@ -362,7 +424,7 @@ function updateComboDisplay() {
     els.comboDisplay.classList.remove('hidden');
     els.comboCount.textContent = state.combo;
     els.comboDisplay.style.animation = 'none';
-    els.comboDisplay.offsetHeight; // reflow
+    els.comboDisplay.offsetHeight;
     els.comboDisplay.style.animation = '';
   } else {
     els.comboDisplay.classList.add('hidden');
@@ -378,8 +440,13 @@ function showFeedback(text, className) {
 }
 
 function updateProgress(elapsed) {
-  const pct = Math.min(100, (elapsed / (CONFIG.gameDuration * 1000)) * 100);
+  const total = CONFIG.gameDuration * 1000;
+  const pct = Math.min(100, (elapsed / total) * 100);
+  const secondsLeft = Math.max(0, Math.ceil((total - elapsed) / 1000));
   els.progressFill.style.width = pct + '%';
+  if (els.progressLabel) {
+    els.progressLabel.textContent = secondsLeft + 's';
+  }
 }
 
 // ─── Game Loop ───────────────────────────────────────────────────
@@ -389,7 +456,6 @@ function gameLoop(timestamp) {
   const elapsed = timestamp - state.startTime;
   const beatInterval = getBeatInterval();
 
-  // Spawn notes on beat
   if (timestamp - state.lastSpawnTime >= beatInterval) {
     spawnNote();
     state.lastSpawnTime = timestamp;
@@ -417,6 +483,8 @@ function startGame() {
   state.bestCombo = 0;
   state.perfects = 0;
   state.goods = 0;
+  state.earlys = 0;
+  state.lates = 0;
   state.misses = 0;
   state.totalNotes = 0;
   state.notes = [];
@@ -426,6 +494,7 @@ function startGame() {
 
   updateHUD();
   updateComboDisplay();
+  updateProgress(0);
   showScreen('game');
 
   requestAnimationFrame(gameLoop);
@@ -434,7 +503,7 @@ function startGame() {
 function endGame() {
   state.running = false;
 
-  const totalHits = state.perfects + state.goods + state.misses;
+  const totalHits = state.perfects + state.goods + state.earlys + state.lates + state.misses;
   const accuracy = totalHits > 0
     ? Math.round(((state.perfects + state.goods) / totalHits) * 100)
     : 0;
@@ -444,7 +513,7 @@ function endGame() {
   els.finalAccuracy.textContent = accuracy + '%';
   els.perfectCount.textContent = state.perfects;
   els.goodCount.textContent = state.goods;
-  els.missCount.textContent = state.misses;
+  els.missCount.textContent = state.misses + state.earlys + state.lates;
 
   showScreen('results');
 }
@@ -474,5 +543,4 @@ window.addEventListener('resize', () => {
   }
 });
 
-// Initial canvas size
 resizeCanvas();
