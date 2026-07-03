@@ -253,6 +253,29 @@ body {
   color: var(--text-primary);
 }
 
+.song-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.song-difficulty {
+  font-size: 0.75rem;
+  color: var(--song-accent, var(--accent-gold));
+  letter-spacing: 0.05em;
+}
+
+.song-meta {
+  font-size: 0.8rem;
+  color: var(--song-accent, var(--accent-magenta));
+  font-weight: 600;
+}
+
+.song-diff-label {
+  color: var(--song-color, var(--accent-cyan));
+}
+
 .song-card:hover {
   transform: translateY(-3px);
   background: rgba(255, 255, 255, 0.06);

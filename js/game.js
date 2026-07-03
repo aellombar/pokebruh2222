@@ -58,6 +58,9 @@ const state = {
   perfectHitStreak: 0,
   patternQueue: [],
   patternPreview: [],
+  patternRound: null,
+  fireworks: [],
+  constellationGlow: 0,
   particles: [],
   audioCtx: null,
 };
@@ -134,7 +137,9 @@ function getBeatMs() {
 }
 
 function getApproachBeats() {
-  return Math.max(1, state.song.approachBeats - Math.floor(state.speedLevel / 2));
+  const base = state.song.approachBeats;
+  const reduction = Math.floor(state.speedLevel / 2) * 0.25;
+  return Math.max(1, base - reduction);
 }
 
 function getApproachTime() {
@@ -243,6 +248,13 @@ function maybeStartPattern() {
     const positions = generatePatternPositions();
     state.patternQueue = [...positions];
     state.patternPreview = positions.map(p => ({ ...p }));
+    state.patternRound = {
+      points: positions.map(p => ({ ...p })),
+      perfects: 0,
+      solidUpTo: 0,
+      failed: false,
+      complete: false,
+    };
   }
 }
 
@@ -250,33 +262,178 @@ function getSpawnPosition() {
   maybeStartPattern();
   if (state.patternQueue.length > 0) {
     const pos = state.patternQueue.shift();
-    return { ...pos, isPattern: true };
+    const patternIndex = state.patternRound
+      ? state.patternRound.points.length - state.patternQueue.length - 1
+      : 0;
+    return { ...pos, isPattern: true, patternIndex };
   }
-  state.patternPreview = [];
   return randomPosition();
 }
 
 function drawPatternPreview() {
-  if (!state.patternPreview.length) return;
+  if (!state.patternRound) return;
   const color = state.song ? state.song.color : '#00f0ff';
+  const accent = state.song ? state.song.accent : '#ff00aa';
+  const points = state.patternRound.points;
+  const solidUpTo = state.patternRound.solidUpTo;
 
-  ctx.strokeStyle = `${color}33`;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 8]);
-  ctx.beginPath();
-  state.patternPreview.forEach((p, i) => {
-    if (i === 0) ctx.moveTo(p.x, p.y);
-    else ctx.lineTo(p.x, p.y);
-  });
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  state.patternPreview.forEach((p, i) => {
+  if (solidUpTo >= 2) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-    ctx.fillStyle = `${color}${i === 0 ? '88' : '33'}`;
+    for (let i = 0; i < solidUpTo; i++) {
+      if (i === 0) ctx.moveTo(points[i].x, points[i].y);
+      else ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  if (solidUpTo < points.length) {
+    ctx.strokeStyle = `${color}44`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 8]);
+    ctx.beginPath();
+    const startIdx = Math.max(0, solidUpTo - 1);
+    for (let i = startIdx; i < points.length; i++) {
+      if (i === startIdx) ctx.moveTo(points[i].x, points[i].y);
+      else ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  points.forEach((p, i) => {
+    const hit = i < solidUpTo;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, hit ? 8 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = hit ? color : `${color}44`;
     ctx.fill();
+    if (hit) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
+      ctx.strokeStyle = `${accent}66`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   });
+
+  if (state.patternRound.complete && state.constellationGlow > 0) {
+    ctx.strokeStyle = `rgba(255, 255, 255, ${state.constellationGlow * 0.5})`;
+    ctx.lineWidth = 4;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 20 * state.constellationGlow;
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    if (points.length > 2) ctx.closePath();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function onPatternHit(rating, note) {
+  if (!note.isPattern || !state.patternRound || state.patternRound.complete) return;
+
+  if (rating === 'perfect') {
+    state.patternRound.perfects++;
+    state.patternRound.solidUpTo = Math.max(
+      state.patternRound.solidUpTo,
+      note.patternIndex + 1
+    );
+    if (state.patternRound.perfects >= CONFIG.patternLength) {
+      completeConstellation();
+    }
+  } else {
+    state.patternRound.failed = true;
+  }
+}
+
+function completeConstellation() {
+  if (!state.patternRound || state.patternRound.complete) return;
+  state.patternRound.complete = true;
+  state.patternRound.solidUpTo = CONFIG.patternLength;
+  state.constellationGlow = 1;
+  spawnFireworks(state.patternRound.points);
+  showFeedback('CONSTELLATION COMPLETE!', 'perfect');
+  playConstellationSound();
+}
+
+function spawnFireworks(points) {
+  const w = els.canvas.width;
+  const h = els.canvas.height;
+  const bursts = [...points, { x: w / 2, y: h / 2 }];
+  const colors = state.song
+    ? [state.song.color, state.song.accent, '#ffffff', '#ffd700']
+    : ['#00f0ff', '#ff00aa', '#ffffff', '#ffd700'];
+
+  bursts.forEach((origin, bi) => {
+    setTimeout(() => {
+      for (let i = 0; i < 40; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 3 + Math.random() * 8;
+        state.fireworks.push({
+          x: origin.x,
+          y: origin.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1,
+          decay: 0.012 + Math.random() * 0.01,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          size: 2 + Math.random() * 3,
+          gravity: 0.08,
+        });
+      }
+    }, bi * 120);
+  });
+}
+
+function playConstellationSound() {
+  if (!state.audioCtx) return;
+  const t = state.audioCtx.currentTime;
+  [523, 659, 784, 1047].forEach((freq, i) => {
+    const osc = state.audioCtx.createOscillator();
+    const gain = state.audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, t + i * 0.08);
+    gain.gain.linearRampToValueAtTime(0.12, t + i * 0.08 + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.08 + 0.4);
+    osc.connect(gain);
+    gain.connect(state.audioCtx.destination);
+    osc.start(t + i * 0.08);
+    osc.stop(t + i * 0.08 + 0.5);
+  });
+}
+
+function drawFireworks() {
+  for (let i = state.fireworks.length - 1; i >= 0; i--) {
+    const f = state.fireworks[i];
+    f.x += f.vx;
+    f.y += f.vy;
+    f.vy += f.gravity;
+    f.vx *= 0.98;
+    f.life -= f.decay;
+
+    if (f.life <= 0) {
+      state.fireworks.splice(i, 1);
+      continue;
+    }
+
+    ctx.globalAlpha = f.life;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.size * f.life, 0, Math.PI * 2);
+    ctx.fillStyle = f.color;
+    ctx.shadowColor = f.color;
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
 }
 function hasActiveNote() {
   return state.currentNote !== null;
@@ -291,6 +448,7 @@ function spawnNoteForBeat(beatEntry, hitTime, approachTime) {
     x: pos.x,
     y: pos.y,
     isPattern: pos.isPattern || false,
+    patternIndex: pos.patternIndex ?? -1,
     shape: SHAPE_TYPES[state.totalNotes % SHAPE_TYPES.length],
     approachTime,
     hitTime,
@@ -334,9 +492,6 @@ function finishCurrentNote() {
   if (beat) beat.resolved = true;
   state.currentNote = null;
   state.beatQueueIndex++;
-  if (state.patternPreview.length > 0) {
-    state.patternPreview.shift();
-  }
 }
 
 function resolveNote(note, rating) {
@@ -354,6 +509,8 @@ function calculatePoints(rating) {
 }
 
 function registerHit(rating, note) {
+  if (note) onPatternHit(rating, note);
+
   if (rating === 'miss') {
     state.misses++;
     state.combo = 0;
@@ -519,6 +676,16 @@ function render(now) {
   skipMissedBeats(now);
   drawPatternPreview();
 
+  if (state.constellationGlow > 0) {
+    state.constellationGlow -= 0.008;
+    if (state.constellationGlow < 0) {
+      state.constellationGlow = 0;
+      if (state.patternRound && state.patternRound.complete) {
+        state.patternRound = null;
+      }
+    }
+  }
+
   const note = state.currentNote;
   if (note && !note.clicked && now > note.hitTime + CONFIG.goodWindow) {
     resolveNote(note, 'late');
@@ -534,6 +701,7 @@ function render(now) {
   }
 
   drawParticles();
+  drawFireworks();
 }
 
 function updateHUD() {
@@ -601,6 +769,9 @@ function resetGameState() {
   state.perfectHitStreak = 0;
   state.patternQueue = [];
   state.patternPreview = [];
+  state.patternRound = null;
+  state.fireworks = [];
+  state.constellationGlow = 0;
   state.particles = [];
   state.beatQueueIndex = 0;
 }
@@ -672,10 +843,14 @@ function buildLevelSelect() {
     card.className = 'song-card';
     card.style.setProperty('--song-color', song.color);
     card.style.setProperty('--song-accent', song.accent);
+    const stars = '★'.repeat(song.difficulty) + '☆'.repeat(5 - song.difficulty);
     card.innerHTML = `
-      <span class="song-genre">${song.genre}</span>
+      <div class="song-card-top">
+        <span class="song-genre">${song.genre}</span>
+        <span class="song-difficulty" title="${song.difficultyLabel}">${stars}</span>
+      </div>
       <span class="song-name">${song.title}</span>
-      <span class="song-bpm">${song.bpm} BPM</span>
+      <span class="song-meta"><span class="song-diff-label">${song.difficultyLabel}</span> · ${song.bpm} BPM · ${song.approachBeats} beat window</span>
       <span class="song-instruments">${song.instruments.join(' · ')}</span>
       <span class="song-desc">${song.description}</span>
     `;
