@@ -21,10 +21,10 @@ const CONFIG = {
   patternMaxLength: 7,
   hitFadeMs: 250,
   missFadeMs: 300,
-  endlessBaseApproach: 1800,
-  endlessMinApproach: 350,
-  chaseBaseFade: 2800,
-  chaseMinFade: 1200,
+  endlessBaseApproach: 1300,
+  endlessMinApproach: 280,
+  chaseBaseFade: 2200,
+  chaseMinFade: 900,
   chaseHoverRadius: 40,
   chaseShapeSize: 66,
   chaseMinPerfectWindow: 65,
@@ -32,9 +32,10 @@ const CONFIG = {
   chaseMinGoodWindow: 140,
   chaseMaxGoodWindow: 260,
   chaseTriplePerfect: 3,
-  chaseRoundGap: 180,
-  countdownFull: [700, 700, 500],
-  countdownQuick: [380, 380, 280],
+  chaseRoundGap: 120,
+  countdownFull: [600, 600, 420],
+  endlessMissWindowMs: 30000,
+  endlessMissLimit: 2,
 };
 
 const CHASE_MODES = {
@@ -42,11 +43,10 @@ const CHASE_MODES = {
     id: 'chase-easy',
     title: 'Cursor Chase — Easy',
     label: 'Easy',
-    baseFade: 2600,
-    minFade: 1300,
-    speedRamp: 0.024,
-    maxSimultaneous: 1,
-    spawnInterval: 260,
+    baseFade: 2100,
+    minFade: 1050,
+    speedRamp: 0.03,
+    spawnInterval: 180,
     missLimit: 12,
     bonusCount: 2,
   },
@@ -54,11 +54,10 @@ const CHASE_MODES = {
     id: 'chase-medium',
     title: 'Cursor Chase — Medium',
     label: 'Medium',
-    baseFade: 2100,
-    minFade: 1000,
-    speedRamp: 0.032,
-    maxSimultaneous: 1,
-    spawnInterval: 200,
+    baseFade: 1700,
+    minFade: 850,
+    speedRamp: 0.04,
+    spawnInterval: 140,
     missLimit: 10,
     bonusCount: 2,
   },
@@ -66,11 +65,10 @@ const CHASE_MODES = {
     id: 'chase-hard',
     title: 'Cursor Chase — Hard',
     label: 'Hard',
-    baseFade: 1750,
-    minFade: 850,
-    speedRamp: 0.04,
-    maxSimultaneous: 1,
-    spawnInterval: 160,
+    baseFade: 1400,
+    minFade: 700,
+    speedRamp: 0.05,
+    spawnInterval: 110,
     missLimit: 8,
     bonusCount: 3,
   },
@@ -78,11 +76,10 @@ const CHASE_MODES = {
     id: 'chase-endless',
     title: 'Cursor Chase — Endless',
     label: 'Endless',
-    baseFade: 2200,
-    minFade: 900,
-    speedRamp: 0.038,
-    maxSimultaneous: 1,
-    spawnInterval: 220,
+    baseFade: 1800,
+    minFade: 750,
+    speedRamp: 0.046,
+    spawnInterval: 150,
     missLimit: 10,
     bonusCount: 3,
     isEndless: true,
@@ -91,7 +88,7 @@ const CHASE_MODES = {
 
 const COUNTDOWN_LABELS = ['READY!', 'SET!', 'GO!'];
 
-const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond', 'star', 'rhombus'];
+const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond', 'star', 'rhombus', 'pentagon', 'octagon', 'cross', 'heart', 'bolt'];
 
 const PERFECT_WORDS = [
   'Perfect', 'Flawless', 'Impeccable', 'Spot On', 'Dead On', 'Nailed It',
@@ -150,10 +147,6 @@ function getChaseFadeDuration(elapsedSec) {
   return Math.max(diff.minFade, diff.baseFade / factor);
 }
 
-function getChaseSimultaneousCount() {
-  return 1;
-}
-
 function getChaseSpawnGap(elapsedSec) {
   const diff = state.chaseDifficulty;
   if (!diff) return CONFIG.chaseRoundGap;
@@ -178,17 +171,17 @@ function beginGameplayAfterCountdown() {
   state.gameStartTime = gameNow();
   state.songStartPerf = gameNow() + CONFIG.audioLeadMs;
   state.gameplayStarted = true;
+  state.endlessWindowStart = gameNow();
+  state.endlessWindowMisses = 0;
 
   if (state.chaseMode) {
     state.chaseNotes = [];
-    state.chaseWaitingRound = false;
     state.chaseBonusPending = 0;
     const now = gameNow();
     spawnChaseNotes(now, 1);
     state.nextSpawnAt = now + getChaseSpawnGap(0);
   } else if (state.endlessMode) {
     state.endlessWaiting = true;
-    state.endlessWaitingRound = false;
     state.nextSpawnAt = gameNow();
     spawnEndlessNote(gameNow());
   } else {
@@ -202,9 +195,8 @@ function beginGameplayAfterCountdown() {
   }
 }
 
-function beginRoundCountdown(type, onComplete) {
+function beginRoundCountdown(onComplete) {
   state.roundCountdown = {
-    type,
     phase: 0,
     startedAt: gameNow(),
     onComplete: onComplete || null,
@@ -215,9 +207,7 @@ function beginRoundCountdown(type, onComplete) {
 function tickCountdown(now) {
   if (!state.roundCountdown) return;
 
-  const durations = state.roundCountdown.type === 'quick'
-    ? CONFIG.countdownQuick
-    : CONFIG.countdownFull;
+  const durations = CONFIG.countdownFull;
   const elapsed = now - state.roundCountdown.startedAt;
   let accumulated = 0;
 
@@ -251,6 +241,15 @@ function isMouseOnNote(note, mx, my) {
   return Math.hypot(mx - note.x, my - note.y) <= size + hover;
 }
 
+function getPlayColors() {
+  const equipped = progression.getEquipped('color');
+  return {
+    color: equipped ? equipped.value : (state.song ? state.song.color : '#00f0ff'),
+    accent: state.song ? state.song.accent : '#ff00aa',
+    aura: progression.getEquipped('aura')?.value || null,
+  };
+}
+
 const state = {
   running: false,
   selectedSongId: 'electronic',
@@ -277,7 +276,9 @@ const state = {
   constellationGlow: 0,
   endlessMode: false,
   endlessWaiting: false,
-  endlessWaitingRound: false,
+  endlessWindowStart: 0,
+  endlessWindowMisses: 0,
+  shockwaves: [],
   nextSpawnAt: 0,
   gameStartTime: 0,
   chaseMode: false,
@@ -285,10 +286,8 @@ const state = {
   chaseNotes: [],
   chasePerfectStreak: 0,
   chaseBonusPending: 0,
-  chaseWaitingRound: false,
   roundCountdown: null,
   cursorTrail: [],
-  goFlashUntil: 0,
   triplePerfectFlash: 0,
   paused: false,
   pauseAt: 0,
@@ -305,6 +304,7 @@ const screens = {
   start: document.getElementById('start-screen'),
   select: document.getElementById('select-screen'),
   chaseSelect: document.getElementById('chase-select-screen'),
+  cosmetics: document.getElementById('cosmetics-screen'),
   game: document.getElementById('game-screen'),
   results: document.getElementById('results-screen'),
 };
@@ -477,6 +477,37 @@ function traceShape(type, size) {
         const py = Math.sin(angle) * radius;
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
+      ctx.closePath(); break;
+    case 'pentagon':
+      for (let i = 0; i < 5; i++) {
+        const angle = (Math.PI * 2 / 5) * i - Math.PI / 2;
+        const px = Math.cos(angle) * s, py = Math.sin(angle) * s;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath(); break;
+    case 'octagon':
+      for (let i = 0; i < 8; i++) {
+        const angle = (Math.PI / 4) * i - Math.PI / 8;
+        const px = Math.cos(angle) * s, py = Math.sin(angle) * s;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath(); break;
+    case 'cross': {
+      const a = s * 0.35;
+      ctx.moveTo(-a, -s); ctx.lineTo(a, -s); ctx.lineTo(a, -a);
+      ctx.lineTo(s, -a); ctx.lineTo(s, a); ctx.lineTo(a, a);
+      ctx.lineTo(a, s); ctx.lineTo(-a, s); ctx.lineTo(-a, a);
+      ctx.lineTo(-s, a); ctx.lineTo(-s, -a); ctx.lineTo(-a, -a);
+      ctx.closePath(); break;
+    }
+    case 'heart':
+      ctx.moveTo(0, s * 0.65);
+      ctx.bezierCurveTo(-s * 1.2, -s * 0.15, -s * 0.55, -s * 1.05, 0, -s * 0.4);
+      ctx.bezierCurveTo(s * 0.55, -s * 1.05, s * 1.2, -s * 0.15, 0, s * 0.65);
+      ctx.closePath(); break;
+    case 'bolt':
+      ctx.moveTo(-s * 0.2, -s); ctx.lineTo(s * 0.45, -s * 0.15); ctx.lineTo(s * 0.08, -s * 0.1);
+      ctx.lineTo(s * 0.2, s); ctx.lineTo(-s * 0.45, s * 0.12); ctx.lineTo(-s * 0.05, s * 0.06);
       ctx.closePath(); break;
   }
 }
@@ -807,23 +838,17 @@ function spawnChaseNotes(now, count = 1, isBonus = false) {
 }
 
 function scheduleChaseRound() {
-  if (state.chaseWaitingRound || isCountdownActive()) return;
-  state.chaseWaitingRound = true;
-
-  beginRoundCountdown('quick', () => {
-    state.chaseWaitingRound = false;
-    const now = gameNow();
-    const elapsed = (now - state.gameStartTime) / 1000;
-    const isBonus = state.chaseBonusPending > 0;
-    if (isBonus) state.chaseBonusPending--;
-    spawnChaseNotes(now, 1, isBonus);
-    state.nextSpawnAt = now + getChaseSpawnGap(elapsed);
-  });
+  const now = gameNow();
+  const elapsed = (now - state.gameStartTime) / 1000;
+  const isBonus = state.chaseBonusPending > 0;
+  if (isBonus) state.chaseBonusPending--;
+  spawnChaseNotes(now, 1, isBonus);
+  state.nextSpawnAt = now + getChaseSpawnGap(elapsed);
 }
 
 function updateChaseSpawns(now) {
   if (!state.chaseMode || !state.chaseDifficulty || isGameplayBlocked()) return;
-  if (hasActiveChaseNote() || state.chaseWaitingRound) return;
+  if (hasActiveChaseNote()) return;
   if (now < state.nextSpawnAt) return;
   scheduleChaseRound();
 }
@@ -922,9 +947,6 @@ function spawnNote(hitTime, approachTime, beatEntry = null) {
     rating: null,
   };
   if (beatEntry) beatEntry.spawned = true;
-  if (!state.chaseMode && !state.endlessMode) {
-    state.goFlashUntil = gameNow() + 260;
-  }
 }
 
 function spawnNoteForBeat(beatEntry, hitTime, approachTime) {
@@ -937,24 +959,13 @@ function spawnEndlessNote(now) {
   spawnNote(now + approachTime, approachTime);
 }
 
-function spawnChaseNote(now) {
-  spawnChaseNotes(now, 1);
-}
-
 function trySpawnEndless(now) {
   if (!state.endlessMode || state.chaseMode || hasActiveNote() || !state.endlessWaiting) return;
-  if (isGameplayBlocked() || state.endlessWaitingRound) return;
+  if (isGameplayBlocked()) return;
   if (now < state.nextSpawnAt) return;
 
-  state.endlessWaitingRound = true;
-  beginRoundCountdown('quick', () => {
-    state.endlessWaitingRound = false;
-    state.endlessWaiting = false;
-    spawnEndlessNote(gameNow());
-    state.endlessWaiting = true;
-    const elapsed = (gameNow() - state.gameStartTime) / 1000;
-    state.nextSpawnAt = gameNow() + Math.max(40, 160 - elapsed * 3.5);
-  });
+  state.endlessWaiting = false;
+  spawnEndlessNote(now);
 }
 
 function skipMissedBeats(now) {
@@ -1015,6 +1026,25 @@ function calculatePoints(rating) {
   return Math.round(base * multiplier);
 }
 
+function registerEndlessMiss() {
+  if (!state.endlessMode) return false;
+  const now = gameNow();
+  if (now - state.endlessWindowStart > CONFIG.endlessMissWindowMs) {
+    state.endlessWindowStart = now;
+    state.endlessWindowMisses = 0;
+  }
+  state.endlessWindowMisses++;
+  if (state.endlessWindowMisses > CONFIG.endlessMissLimit) {
+    showFeedback('TOO MANY MISSES!', 'miss');
+    endGame();
+    return true;
+  }
+  if (state.endlessWindowMisses === CONFIG.endlessMissLimit) {
+    showFeedback('1 MISS LEFT!', 'miss');
+  }
+  return false;
+}
+
 function registerHit(rating, note) {
   if (note && !state.chaseMode) onPatternHit(rating, note);
 
@@ -1028,6 +1058,7 @@ function registerHit(rating, note) {
     state.perfectHitStreak = 0;
     if (!state.chaseMode) state.chasePerfectStreak = 0;
     updateComboDisplay();
+    if (registerEndlessMiss()) return;
     showFeedback(pickRandom(MISS_WORDS), 'miss');
     playHitSound('miss');
     if (state.misses >= missLimit) endGame();
@@ -1041,6 +1072,7 @@ function registerHit(rating, note) {
     if (rating === 'early') state.earlys++;
     else state.lates++;
     updateComboDisplay();
+    if (registerEndlessMiss()) return;
     showFeedback(rating === 'early' ? 'TOO EARLY' : pickRandom(MISS_WORDS), rating);
     playHitSound(rating);
     return;
@@ -1065,7 +1097,16 @@ function registerHit(rating, note) {
   const word = pickRandom(PERFECT_WORDS);
   showFeedback(word + ' +' + points + (speedUp ? ' — SPEED UP!' : ''), rating);
   playHitSound(rating);
-  if (note) spawnParticles(note.x, note.y);
+  if (note) {
+    spawnParticles(note.x, note.y);
+    if (rating === 'perfect') {
+      const colors = getPlayColors();
+      spawnShockwave(note.x, note.y, colors.color, state.perfectHitStreak >= 5);
+      if (state.perfectHitStreak >= 5 && state.perfectHitStreak % 5 === 0) {
+        spawnFireworks([{ x: note.x, y: note.y }]);
+      }
+    }
+  }
 }
 
 function handleChaseInput(clientX, clientY) {
@@ -1148,7 +1189,7 @@ function handleInput(clientX, clientY) {
 }
 
 function spawnParticles(x, y) {
-  const color = state.song ? state.song.color : '#00f0ff';
+  const color = getPlayColors().color;
   for (let i = 0; i < 14; i++) {
     const angle = (Math.PI * 2 * i) / 14;
     state.particles.push({
@@ -1167,8 +1208,12 @@ function drawNote(note, now) {
   const targetSize = state.chaseMode ? CONFIG.chaseShapeSize : CONFIG.shapeSize;
   const approachScale = CONFIG.approachStartScale - (CONFIG.approachStartScale - 1) * progress;
   const approachSize = targetSize * approachScale;
-  const accent = state.song ? state.song.accent : '#ff00aa';
-  const color = state.song ? state.song.color : '#00f0ff';
+  const { color, accent, aura } = getPlayColors();
+
+  if (aura && !note.hit && !note.missed) {
+    ctx.shadowColor = aura;
+    ctx.shadowBlur = 14;
+  }
 
   if (note.hit) {
     const alpha = Math.max(0, 1 - (now - note.hitTime) / 350);
@@ -1240,6 +1285,7 @@ function drawNote(note, now) {
   ctx.arc(note.x, note.y, 3, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
+  ctx.shadowBlur = 0;
 }
 
 function drawChaseCursor() {
@@ -1277,9 +1323,12 @@ function drawChaseCursor() {
 function addCursorTrailPoint(x, y) {
   const last = state.cursorTrail[state.cursorTrail.length - 1];
   if (last && Math.hypot(x - last.x, y - last.y) < 4) return;
-  const colors = state.song
-    ? [state.song.color, state.song.accent, '#ffffff']
-    : ['#00ff88', '#ff6b9d', '#ffffff'];
+  const trailCosmetic = progression.getEquipped('trail');
+  const colors = trailCosmetic
+    ? [trailCosmetic.value, trailCosmetic.value, '#ffffff']
+    : (state.song
+      ? [state.song.color, state.song.accent, '#ffffff']
+      : ['#00ff88', '#ff6b9d', '#ffffff']);
   state.cursorTrail.push({
     x, y,
     life: 1,
@@ -1327,9 +1376,7 @@ function drawPixelCountdown(now) {
   const label = COUNTDOWN_LABELS[state.roundCountdown.phase];
   const color = state.song?.color || '#00ff88';
   const accent = state.song?.accent || '#ff6b9d';
-  const durations = state.roundCountdown.type === 'quick'
-    ? CONFIG.countdownQuick
-    : CONFIG.countdownFull;
+  const durations = CONFIG.countdownFull;
   const elapsed = now - state.roundCountdown.startedAt;
   let acc = 0;
   let phaseElapsed = elapsed;
@@ -1367,22 +1414,36 @@ function drawPixelCountdown(now) {
   ctx.restore();
 }
 
-function drawGoFlash(now) {
-  if (!state.goFlashUntil || now > state.goFlashUntil || isCountdownActive()) return;
-  const alpha = Math.min(1, (state.goFlashUntil - now) / 260);
-  const w = els.canvas.width;
+function drawShockwaves() {
+  for (let i = state.shockwaves.length - 1; i >= 0; i--) {
+    const s = state.shockwaves[i];
+    s.radius += s.speed;
+    s.life -= 0.035;
+    if (s.life <= 0) { state.shockwaves.splice(i, 1); continue; }
+    ctx.globalAlpha = s.life * 0.8;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 3 * s.life;
+    ctx.stroke();
+    if (s.double) {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.radius * 0.6, 0, Math.PI * 2);
+      ctx.lineWidth = 2 * s.life;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
 
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.imageSmoothingEnabled = false;
-  ctx.font = '22px "Press Start 2P", monospace';
-  ctx.fillStyle = state.song?.accent || '#ff6b9d';
-  ctx.shadowColor = state.song?.color || '#00ff88';
-  ctx.shadowBlur = 12;
-  ctx.fillText('GO!', w / 2, 72);
-  ctx.restore();
+function spawnShockwave(x, y, color, isDouble = false) {
+  state.shockwaves.push({
+    x, y, color,
+    radius: 20,
+    speed: isDouble ? 7 : 5,
+    life: 1,
+    double: isDouble,
+  });
 }
 
 function drawParticles() {
@@ -1458,6 +1519,7 @@ function render(now) {
   }
 
   drawParticles();
+  drawShockwaves();
   drawFireworks();
 
   if (state.triplePerfectFlash > 0) {
@@ -1471,7 +1533,6 @@ function render(now) {
   }
 
   drawPixelCountdown(now);
-  drawGoFlash(now);
 }
 
 function updateHUD() {
@@ -1504,11 +1565,16 @@ function updateProgress() {
   if (state.endlessMode || state.chaseMode) {
     const elapsed = gameNow() - state.gameStartTime;
     const sec = Math.floor(elapsed / 1000);
+    const windowElapsed = gameNow() - state.endlessWindowStart;
+    const missesLeft = windowElapsed > CONFIG.endlessMissWindowMs
+      ? CONFIG.endlessMissLimit + 1
+      : Math.max(0, CONFIG.endlessMissLimit + 1 - state.endlessWindowMisses);
+    const hearts = '❤'.repeat(missesLeft) + '♡'.repeat(CONFIG.endlessMissLimit + 1 - missesLeft);
     els.progressFill.style.width = `${((sec % 45) / 45) * 100}%`;
     if (els.progressLabel) {
-      els.progressLabel.textContent = state.chaseMode
+      els.progressLabel.textContent = (state.chaseMode
         ? sec + 's · ' + (state.chaseDifficulty?.label || 'chase')
-        : sec + 's survived';
+        : sec + 's survived') + ' · ' + hearts;
     }
     return;
   }
@@ -1572,17 +1638,17 @@ function resetGameState() {
   state.chaseNotes = [];
   state.chasePerfectStreak = 0;
   state.chaseBonusPending = 0;
-  state.chaseWaitingRound = false;
   state.roundCountdown = null;
   state.cursorTrail = [];
-  state.goFlashUntil = 0;
   state.triplePerfectFlash = 0;
   state.paused = false;
   state.pauseAt = 0;
   state.pausedTimeOffset = 0;
   state.gameplayStarted = false;
   state.endlessWaiting = false;
-  state.endlessWaitingRound = false;
+  state.endlessWindowStart = 0;
+  state.endlessWindowMisses = 0;
+  state.shockwaves = [];
   state.mouseOnCanvas = false;
   state.nextSpawnAt = 0;
   state.gameStartTime = 0;
@@ -1623,7 +1689,8 @@ function startGame(songId) {
   state.gameStartTime = performance.now();
   state.nextSpawnAt = performance.now();
 
-  backgroundRenderer.setTheme(state.chaseMode ? 'chase' : state.selectedSongId);
+  const bgCosmetic = progression.getEquipped('background');
+  backgroundRenderer.setTheme(bgCosmetic ? { theme: bgCosmetic.value } : (state.chaseMode ? 'chase' : state.selectedSongId));
 
   if (state.endlessMode || state.chaseMode) {
     state.beatQueue = [];
@@ -1655,7 +1722,7 @@ function startGame(songId) {
   showScreen('game');
   resizeCanvas();
 
-  beginRoundCountdown('full', beginGameplayAfterCountdown);
+  beginRoundCountdown(beginGameplayAfterCountdown);
 
   render(performance.now());
   requestAnimationFrame(gameLoop);
@@ -1681,6 +1748,24 @@ function endGame() {
         ? ` · ${Math.floor((gameNow() - state.gameStartTime) / 1000)}s` : '')
       : '';
   }
+
+  const survivalBonus = (state.endlessMode || state.chaseMode)
+    ? Math.floor((gameNow() - state.gameStartTime) / 1000)
+    : 0;
+  const xpEarned = state.perfects * 4 + state.goods * 2 + state.bestCombo + survivalBonus;
+  const result = progression.addXP(xpEarned);
+  const info = progression.getLevelInfo();
+
+  const xpGainedEl = document.getElementById('xp-gained');
+  const resLevelEl = document.getElementById('res-level');
+  const resFillEl = document.getElementById('res-xp-fill');
+  const resLabelEl = document.getElementById('res-xp-label');
+  const levelUpEl = document.getElementById('level-up-msg');
+  if (xpGainedEl) xpGainedEl.textContent = `+${result.gained} XP`;
+  if (resLevelEl) resLevelEl.textContent = `LVL ${info.level}`;
+  if (resFillEl) resFillEl.style.width = info.pct + '%';
+  if (resLabelEl) resLabelEl.textContent = info.maxed ? 'MAX LEVEL' : `${info.current} / ${info.needed} XP`;
+  if (levelUpEl) levelUpEl.classList.toggle('hidden', !result.leveledUp);
 
   showScreen('results');
 }
@@ -1774,6 +1859,51 @@ function buildChaseSelect() {
   });
 }
 
+// ─── Cosmetics UI ────────────────────────────────────────────────
+function updateXPDisplay(prefix) {
+  const info = progression.getLevelInfo();
+  const levelEl = document.getElementById(`${prefix}-level`);
+  const fillEl = document.getElementById(`${prefix}-xp-fill`);
+  const labelEl = document.getElementById(`${prefix}-xp-label`);
+  if (levelEl) levelEl.textContent = `LVL ${info.level}`;
+  if (fillEl) fillEl.style.width = info.pct + '%';
+  if (labelEl) labelEl.textContent = info.maxed ? 'MAX LEVEL' : `${info.current} / ${info.needed} XP`;
+}
+
+function buildCosmetics() {
+  const grid = document.getElementById('cosmetics-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  updateXPDisplay('cos');
+
+  const typeLabels = { color: 'Shape Color', trail: 'Cursor Trail', background: 'Background', aura: 'Aura Glow' };
+
+  COSMETICS.forEach(item => {
+    const unlocked = progression.isUnlocked(item);
+    const equipped = progression.data.equipped[item.type] === item.id;
+    const card = document.createElement('button');
+    card.className = `cosmetic-card${unlocked ? '' : ' locked'}${equipped ? ' equipped' : ''}`;
+
+    const swatch = item.type === 'background'
+      ? `<span class="cosmetic-swatch bg-swatch">🎨</span>`
+      : `<span class="cosmetic-swatch" style="background:${item.value}"></span>`;
+
+    card.innerHTML = `
+      ${swatch}
+      <span class="cosmetic-name">${unlocked ? item.name : '???'}</span>
+      <span class="cosmetic-type">${typeLabels[item.type]}</span>
+      <span class="cosmetic-level">${unlocked ? (equipped ? 'EQUIPPED' : 'Tap to equip') : `Unlocks at LVL ${item.level}`}</span>
+    `;
+    if (unlocked) {
+      card.addEventListener('click', () => {
+        progression.equip(item);
+        buildCosmetics();
+      });
+    }
+    grid.appendChild(card);
+  });
+}
+
 // ─── Event Listeners ─────────────────────────────────────────────
 document.getElementById('start-btn').addEventListener('click', () => showScreen('select'));
 document.getElementById('retry-btn').addEventListener('click', () => startGame(state.selectedSongId));
@@ -1782,6 +1912,10 @@ if (chaseBackBtn) chaseBackBtn.addEventListener('click', () => showScreen('selec
 document.getElementById('select-back-btn').addEventListener('click', () => showScreen('select'));
 if (els.pauseContinueBtn) els.pauseContinueBtn.addEventListener('click', togglePause);
 if (els.pauseLeaveBtn) els.pauseLeaveBtn.addEventListener('click', leaveGame);
+const cosmeticsBtn = document.getElementById('cosmetics-btn');
+if (cosmeticsBtn) cosmeticsBtn.addEventListener('click', () => { buildCosmetics(); showScreen('cosmetics'); });
+const cosmeticsBackBtn = document.getElementById('cosmetics-back-btn');
+if (cosmeticsBackBtn) cosmeticsBackBtn.addEventListener('click', () => showScreen('start'));
 
 els.canvas.addEventListener('click', (e) => handleInput(e.clientX, e.clientY));
 

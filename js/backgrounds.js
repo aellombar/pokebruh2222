@@ -21,7 +21,11 @@ class BackgroundRenderer {
   }
 
   setTheme(songId) {
-    this.theme = THEME_MAP[songId] || 'cyberpunk';
+    if (songId && typeof songId === 'object' && songId.theme) {
+      this.theme = songId.theme;
+    } else {
+      this.theme = THEME_MAP[songId] || 'cyberpunk';
+    }
     this.particles = [];
     this.initParticles();
   }

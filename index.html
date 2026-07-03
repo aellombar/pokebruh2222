@@ -40,6 +40,22 @@
         </div>
       </div>
       <button id="start-btn" class="btn-primary">CHOOSE SONG</button>
+      <button id="cosmetics-btn" class="btn-secondary">COSMETICS</button>
+    </div>
+
+    <!-- Cosmetics Screen -->
+    <div id="cosmetics-screen" class="screen">
+      <div class="select-header">
+        <h2>COSMETICS</h2>
+        <p class="select-subtitle">Unlock a new cosmetic every level · caps at level 50</p>
+        <div class="xp-display">
+          <span id="cos-level" class="xp-level">LVL 1</span>
+          <div class="xp-bar"><div id="cos-xp-fill" class="xp-fill"></div></div>
+          <span id="cos-xp-label" class="xp-label">0 / 100 XP</span>
+        </div>
+      </div>
+      <div id="cosmetics-grid" class="cosmetics-grid"></div>
+      <button id="cosmetics-back-btn" class="btn-secondary">BACK</button>
     </div>
 
     <!-- Level Select Screen -->
@@ -138,6 +154,15 @@
             <span class="good-count"><span id="good-count">0</span> Good</span>
             <span class="miss-count"><span id="miss-count">0</span> Miss</span>
           </div>
+          <div class="xp-results">
+            <span id="xp-gained" class="xp-gained">+0 XP</span>
+            <div class="xp-display">
+              <span id="res-level" class="xp-level">LVL 1</span>
+              <div class="xp-bar"><div id="res-xp-fill" class="xp-fill"></div></div>
+              <span id="res-xp-label" class="xp-label">0 / 100 XP</span>
+            </div>
+            <span id="level-up-msg" class="level-up-msg hidden">LEVEL UP! New cosmetic unlocked!</span>
+          </div>
         </div>
         <div class="results-actions">
           <button id="retry-btn" class="btn-primary">PLAY AGAIN</button>
@@ -149,6 +174,7 @@
 
   <script src="js/backgrounds.js"></script>
   <script src="js/music.js"></script>
+  <script src="js/progression.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>
