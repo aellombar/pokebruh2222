@@ -8,6 +8,7 @@ const NOTE = {
   C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
   C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
   C5: 523.25, D5: 587.33, E5: 659.25, G5: 783.99,
+  A5: 880.00, B5: 987.77, C6: 1046.50,
 };
 
 // ─── Instrument helpers ──────────────────────────────────────────
@@ -20,11 +21,14 @@ function createGain(ctx, time, peak, duration) {
 }
 
 function playOsc(ctx, dest, time, freq, type, duration, volume, freqEnd) {
+  if (!Number.isFinite(freq) || freq <= 0) return;
   const osc = ctx.createOscillator();
   const gain = createGain(ctx, time, volume, duration);
   osc.type = type;
   osc.frequency.setValueAtTime(freq, time);
-  if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, time + duration);
+  if (freqEnd && Number.isFinite(freqEnd) && freqEnd > 0) {
+    osc.frequency.exponentialRampToValueAtTime(freqEnd, time + duration);
+  }
   osc.connect(gain);
   gain.connect(dest);
   osc.start(time);
@@ -63,6 +67,7 @@ function playHiHat(ctx, dest, time, vol = 0.12, open = false) {
 }
 
 function playBass(ctx, dest, time, freq, vol = 0.35, dur = 0.3) {
+  if (!Number.isFinite(freq) || freq <= 0) return;
   const osc = ctx.createOscillator();
   const filter = ctx.createBiquadFilter();
   filter.type = 'lowpass';
@@ -78,7 +83,8 @@ function playBass(ctx, dest, time, freq, vol = 0.35, dur = 0.3) {
 }
 
 function playChord(ctx, dest, time, freqs, type, vol, dur) {
-  freqs.forEach(f => playOsc(ctx, dest, time, f, type, dur, vol / freqs.length));
+  freqs.filter(f => Number.isFinite(f) && f > 0)
+    .forEach(f => playOsc(ctx, dest, time, f, type, dur, vol / freqs.length));
 }
 
 // ─── Genre schedulers ────────────────────────────────────────────
@@ -464,7 +470,7 @@ class SongPlayer {
   }
 
   isFinished() {
-    if (!this.song) return true;
+    if (!this.song || !this.playing) return false;
     if (this.song.isEndless || this.song.isChase) return false;
     return this.getElapsedMs() >= this.song.duration * 1000;
   }

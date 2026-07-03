@@ -164,12 +164,50 @@ function isCountdownActive() {
   return state.roundCountdown !== null;
 }
 
+function isGameplayBlocked() {
+  return isCountdownActive() || !state.gameplayStarted;
+}
+
+function beginGameplayAfterCountdown() {
+  try {
+    songPlayer.play(state.song);
+  } catch (err) {
+    console.error('Music failed to start:', err);
+  }
+
+  state.gameStartTime = gameNow();
+  state.songStartPerf = gameNow() + CONFIG.audioLeadMs;
+  state.gameplayStarted = true;
+
+  if (state.chaseMode) {
+    state.chaseNotes = [];
+    state.chaseWaitingRound = false;
+    state.chaseBonusPending = 0;
+    const now = gameNow();
+    spawnChaseNotes(now, 1);
+    state.nextSpawnAt = now + getChaseSpawnGap(0);
+  } else if (state.endlessMode) {
+    state.endlessWaiting = true;
+    state.endlessWaitingRound = false;
+    state.nextSpawnAt = gameNow();
+    spawnEndlessNote(gameNow());
+  } else {
+    const firstBeat = state.beatQueue[0];
+    if (firstBeat) {
+      const hitTime = beatToPerfTime(firstBeat.beatIndex);
+      const approachTime = getApproachTime();
+      spawnNoteForBeat(firstBeat, hitTime, approachTime);
+      state.beatQueueIndex = 0;
+    }
+  }
+}
+
 function beginRoundCountdown(type, onComplete) {
   state.roundCountdown = {
     type,
     phase: 0,
     startedAt: gameNow(),
-    onComplete,
+    onComplete: onComplete || null,
   };
   playCountdownBeep(0);
 }
@@ -255,6 +293,7 @@ const state = {
   paused: false,
   pauseAt: 0,
   pausedTimeOffset: 0,
+  gameplayStarted: false,
   mouseX: 0,
   mouseY: 0,
   mouseOnCanvas: false,
@@ -301,6 +340,8 @@ function showScreen(name) {
   if (name !== 'game' && els.pauseOverlay) {
     els.pauseOverlay.classList.add('hidden');
     state.paused = false;
+    state.gameplayStarted = false;
+    state.roundCountdown = null;
   }
 }
 
@@ -381,10 +422,12 @@ function resizeCanvas() {
 }
 
 function getBeatMs() {
+  if (!state.song) return 500;
   return songPlayer.getBeatMs(state.song);
 }
 
 function getApproachBeats() {
+  if (!state.song) return 2.5;
   const base = state.song.approachBeats;
   const reduction = Math.floor(state.speedLevel / 2) * 0.25;
   return Math.max(1, base - reduction);
@@ -453,12 +496,14 @@ function drawShapeOutline(x, y, type, size, color, lineWidth, fill = null) {
 
 // ─── Spawn Positions & Patterns ──────────────────────────────────
 function randomPosition() {
-  const w = els.canvas.width;
-  const h = els.canvas.height;
-  const margin = CONFIG.shapeSize * CONFIG.approachStartScale + 50;
+  const w = Math.max(els.canvas.width, 320);
+  const h = Math.max(els.canvas.height, 240);
+  const margin = Math.min(CONFIG.shapeSize * CONFIG.approachStartScale + 50, w * 0.2, h * 0.2);
+  const innerW = Math.max(40, w - margin * 2);
+  const innerH = Math.max(40, h - margin * 2);
   return {
-    x: margin + Math.random() * (w - margin * 2),
-    y: margin + Math.random() * (h - margin * 2),
+    x: margin + Math.random() * innerW,
+    y: margin + Math.random() * innerH,
   };
 }
 
@@ -777,7 +822,7 @@ function scheduleChaseRound() {
 }
 
 function updateChaseSpawns(now) {
-  if (!state.chaseMode || !state.chaseDifficulty || isCountdownActive()) return;
+  if (!state.chaseMode || !state.chaseDifficulty || isGameplayBlocked()) return;
   if (hasActiveChaseNote() || state.chaseWaitingRound) return;
   if (now < state.nextSpawnAt) return;
   scheduleChaseRound();
@@ -898,7 +943,7 @@ function spawnChaseNote(now) {
 
 function trySpawnEndless(now) {
   if (!state.endlessMode || state.chaseMode || hasActiveNote() || !state.endlessWaiting) return;
-  if (isCountdownActive() || state.endlessWaitingRound) return;
+  if (isGameplayBlocked() || state.endlessWaitingRound) return;
   if (now < state.nextSpawnAt) return;
 
   state.endlessWaitingRound = true;
@@ -913,7 +958,7 @@ function trySpawnEndless(now) {
 }
 
 function skipMissedBeats(now) {
-  if (hasActiveNote()) return;
+  if (hasActiveNote() || isGameplayBlocked()) return;
 
   while (state.beatQueueIndex < state.beatQueue.length) {
     const beat = state.beatQueue[state.beatQueueIndex];
@@ -1061,7 +1106,7 @@ function handleChaseInput(clientX, clientY) {
 }
 
 function handleInput(clientX, clientY) {
-  if (!state.running || state.paused || isCountdownActive()) return;
+  if (!state.running || state.paused || isGameplayBlocked()) return;
 
   if (state.chaseMode) {
     handleChaseInput(clientX, clientY);
@@ -1360,7 +1405,7 @@ function render(now) {
 
   backgroundRenderer.draw(ctx, w, h, now);
 
-  if (!isCountdownActive()) {
+  if (!isGameplayBlocked()) {
     if (state.endlessMode && !state.chaseMode) {
       trySpawnEndless(now);
     } else if (state.chaseMode) {
@@ -1369,6 +1414,8 @@ function render(now) {
     } else {
       skipMissedBeats(now);
     }
+  } else if (state.chaseMode) {
+    cleanupChaseNotes(now);
   }
   drawPatternPreview();
 
@@ -1453,6 +1500,7 @@ function showFeedback(text, className) {
 }
 
 function updateProgress() {
+  if (!state.song) return;
   if (state.endlessMode || state.chaseMode) {
     const elapsed = gameNow() - state.gameStartTime;
     const sec = Math.floor(elapsed / 1000);
@@ -1487,7 +1535,8 @@ function gameLoop() {
   render(now);
   updateProgress();
 
-  if (!state.endlessMode && !state.chaseMode && (songPlayer.isFinished() || state.beatQueueIndex >= state.beatQueue.length)) {
+  if (state.gameplayStarted && !state.endlessMode && !state.chaseMode
+    && (songPlayer.isFinished() || state.beatQueueIndex >= state.beatQueue.length)) {
     if (!hasActiveNote()) { endGame(); return; }
   }
 
@@ -1531,6 +1580,7 @@ function resetGameState() {
   state.paused = false;
   state.pauseAt = 0;
   state.pausedTimeOffset = 0;
+  state.gameplayStarted = false;
   state.endlessWaiting = false;
   state.endlessWaitingRound = false;
   state.mouseOnCanvas = false;
@@ -1605,30 +1655,7 @@ function startGame(songId) {
   showScreen('game');
   resizeCanvas();
 
-  beginRoundCountdown('full', () => {
-    songPlayer.play(state.song);
-    state.gameStartTime = gameNow();
-    state.songStartPerf = gameNow() + CONFIG.audioLeadMs;
-
-    if (state.chaseMode) {
-      state.chaseNotes = [];
-      state.chaseWaitingRound = false;
-      const now = gameNow();
-      spawnChaseNotes(now, 1);
-      state.nextSpawnAt = now + getChaseSpawnGap(0);
-    } else if (state.endlessMode) {
-      state.endlessWaiting = false;
-      spawnEndlessNote(gameNow());
-    } else {
-      const firstBeat = state.beatQueue[0];
-      if (firstBeat) {
-        const hitTime = beatToPerfTime(firstBeat.beatIndex);
-        const approachTime = getApproachTime();
-        spawnNoteForBeat(firstBeat, hitTime, approachTime);
-        state.beatQueueIndex = 0;
-      }
-    }
-  });
+  beginRoundCountdown('full', beginGameplayAfterCountdown);
 
   render(performance.now());
   requestAnimationFrame(gameLoop);
