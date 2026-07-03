@@ -5,7 +5,6 @@
 
 // ─── Configuration ───────────────────────────────────────────────
 const CONFIG = {
-  bpm: 128,
   gameDuration: 60,
   approachTime: 1600,
   perfectWindow: 70,
@@ -13,8 +12,8 @@ const CONFIG = {
   basePoints: 100,
   shapeSize: 58,
   approachStartScale: 3.2,
-  spawnMargin: 100,
   missLimit: 10,
+  gapBetweenNotes: 300,
 };
 
 const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond'];
@@ -32,8 +31,8 @@ const state = {
   misses: 0,
   totalNotes: 0,
   startTime: 0,
-  lastSpawnTime: 0,
-  notes: [],
+  currentNote: null,
+  nextSpawnAt: 0,
   particles: [],
   audioCtx: null,
 };
@@ -164,15 +163,20 @@ function drawShapeOutline(x, y, type, size, color, lineWidth, fill = null) {
 }
 
 // ─── Note Spawning ───────────────────────────────────────────────
+function hasActiveNote() {
+  return state.currentNote !== null;
+}
+
 function spawnNote() {
+  if (hasActiveNote()) return false;
+
   const w = els.canvas.width;
   const h = els.canvas.height;
-  const margin = CONFIG.spawnMargin + CONFIG.shapeSize * CONFIG.approachStartScale;
 
-  const note = {
+  state.currentNote = {
     id: state.totalNotes++,
-    x: margin + Math.random() * (w - margin * 2),
-    y: margin + Math.random() * (h - margin * 2),
+    x: w / 2,
+    y: h / 2,
     shape: SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)],
     hitTime: performance.now() + CONFIG.approachTime,
     hit: false,
@@ -180,12 +184,18 @@ function spawnNote() {
     rating: null,
   };
 
-  state.notes.push(note);
   playBeatTick();
+  return true;
 }
 
-function getBeatInterval() {
-  return (60 / CONFIG.bpm) * 1000;
+function trySpawnNext(now) {
+  if (hasActiveNote() || now < state.nextSpawnAt) return;
+  spawnNote();
+}
+
+function finishCurrentNote(now) {
+  state.currentNote = null;
+  state.nextSpawnAt = now + CONFIG.gapBetweenNotes;
 }
 
 // ─── Scoring ─────────────────────────────────────────────────────
@@ -236,42 +246,32 @@ function registerHit(rating, note) {
 function handleInput() {
   if (!state.running) return;
 
-  const now = performance.now();
-  let closestNote = null;
-  let closestDiff = Infinity;
-
-  for (const note of state.notes) {
-    if (note.hit || note.missed) continue;
-    const diff = now - note.hitTime;
-    const absDiff = Math.abs(diff);
-    if (absDiff < closestDiff) {
-      closestDiff = absDiff;
-      closestNote = note;
-    }
-  }
-
-  if (!closestNote) {
+  const note = state.currentNote;
+  if (!note || note.hit || note.missed) {
     registerHit('miss');
     return;
   }
 
-  const diff = now - closestNote.hitTime;
+  const now = performance.now();
+  const diff = now - note.hitTime;
 
   if (Math.abs(diff) > CONFIG.goodWindow) {
     registerHit(diff < 0 ? 'early' : 'miss');
     return;
   }
 
-  closestNote.hit = true;
+  note.hit = true;
 
   if (Math.abs(diff) <= CONFIG.perfectWindow) {
-    closestNote.rating = 'perfect';
-    registerHit('perfect', closestNote);
+    note.rating = 'perfect';
+    registerHit('perfect', note);
   } else if (diff < 0) {
-    closestNote.rating = 'early';
+    note.rating = 'early';
+    note.missed = true;
     registerHit('early');
   } else {
-    closestNote.rating = 'late';
+    note.rating = 'late';
+    note.missed = true;
     registerHit('late');
   }
 }
@@ -392,25 +392,24 @@ function render(now) {
     ctx.stroke();
   }
 
-  // Auto-miss notes that weren't hit in time
-  for (const note of state.notes) {
-    if (!note.hit && !note.missed && now > note.hitTime + CONFIG.goodWindow) {
-      note.missed = true;
-      registerHit('late');
+  // Auto-miss the active note if it wasn't hit in time
+  const note = state.currentNote;
+  if (note && !note.hit && !note.missed && now > note.hitTime + CONFIG.goodWindow) {
+    note.missed = true;
+    registerHit('late');
+  }
+
+  if (note) {
+    drawNote(note, now);
+
+    if (note.hit && now - note.hitTime > 400) {
+      finishCurrentNote(now);
+    } else if (note.missed && now - note.hitTime > 700) {
+      finishCurrentNote(now);
     }
   }
 
-  for (const note of state.notes) {
-    drawNote(note, now);
-  }
-
   drawParticles();
-
-  state.notes = state.notes.filter(n => {
-    if (n.hit && now - n.hitTime > 400) return false;
-    if (n.missed && now - n.hitTime > 700) return false;
-    return true;
-  });
 }
 
 // ─── HUD Updates ─────────────────────────────────────────────────
@@ -454,13 +453,8 @@ function gameLoop(timestamp) {
   if (!state.running) return;
 
   const elapsed = timestamp - state.startTime;
-  const beatInterval = getBeatInterval();
 
-  if (timestamp - state.lastSpawnTime >= beatInterval) {
-    spawnNote();
-    state.lastSpawnTime = timestamp;
-  }
-
+  trySpawnNext(timestamp);
   render(timestamp);
   updateProgress(elapsed);
 
@@ -487,16 +481,17 @@ function startGame() {
   state.lates = 0;
   state.misses = 0;
   state.totalNotes = 0;
-  state.notes = [];
+  state.currentNote = null;
+  state.nextSpawnAt = 0;
   state.particles = [];
   state.startTime = performance.now();
-  state.lastSpawnTime = state.startTime - getBeatInterval();
 
   updateHUD();
   updateComboDisplay();
   updateProgress(0);
   showScreen('game');
 
+  spawnNote();
   requestAnimationFrame(gameLoop);
 }
 
