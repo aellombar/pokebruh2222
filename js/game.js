@@ -16,15 +16,19 @@ const CONFIG = {
   approachStartScale: 3.2,
   missLimit: 10,
   audioLeadMs: 80,
-  patternEvery: 5,
-  patternLength: 4,
+  patternEvery: 3,
+  patternMinLength: 4,
+  patternMaxLength: 7,
   hitFadeMs: 250,
   missFadeMs: 300,
   endlessBaseApproach: 1800,
   endlessMinApproach: 350,
+  chaseBaseFade: 2800,
+  chaseMinFade: 1200,
+  chaseHoverRadius: 22,
 };
 
-const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond'];
+const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond', 'star', 'rhombus'];
 
 const PERFECT_WORDS = [
   'Perfect', 'Flawless', 'Impeccable', 'Spot On', 'Dead On', 'Nailed It',
@@ -59,6 +63,23 @@ function getEndlessApproachTime(elapsedSec) {
   return Math.max(CONFIG.endlessMinApproach, CONFIG.endlessBaseApproach / factor);
 }
 
+function getChaseFadeDuration(elapsedSec) {
+  const factor = 1 + elapsedSec * 0.028;
+  return Math.max(CONFIG.chaseMinFade, CONFIG.chaseBaseFade / factor);
+}
+
+function getCanvasCoords(clientX, clientY) {
+  const rect = els.canvas.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (els.canvas.width / rect.width),
+    y: (clientY - rect.top) * (els.canvas.height / rect.height),
+  };
+}
+
+function isMouseOnNote(note, mx, my) {
+  return Math.hypot(mx - note.x, my - note.y) <= CONFIG.shapeSize + CONFIG.chaseHoverRadius;
+}
+
 const state = {
   running: false,
   selectedSongId: 'electronic',
@@ -87,6 +108,10 @@ const state = {
   endlessWaiting: false,
   nextSpawnAt: 0,
   gameStartTime: 0,
+  chaseMode: false,
+  mouseX: 0,
+  mouseY: 0,
+  mouseOnCanvas: false,
   particles: [],
   audioCtx: null,
 };
@@ -202,6 +227,17 @@ function traceShape(type, size) {
       ctx.closePath(); break;
     case 'diamond':
       ctx.moveTo(0, -s); ctx.lineTo(s * 0.65, 0); ctx.lineTo(0, s); ctx.lineTo(-s * 0.65, 0); ctx.closePath(); break;
+    case 'rhombus':
+      ctx.moveTo(0, -s); ctx.lineTo(s * 0.75, 0); ctx.lineTo(0, s); ctx.lineTo(-s * 0.75, 0); ctx.closePath(); break;
+    case 'star':
+      for (let i = 0; i < 10; i++) {
+        const angle = (Math.PI / 5) * i - Math.PI / 2;
+        const radius = i % 2 === 0 ? s : s * 0.42;
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath(); break;
   }
 }
 
@@ -234,41 +270,50 @@ function generatePatternPositions() {
   const h = els.canvas.height;
   const cx = w / 2;
   const cy = h / 2;
-  const r = Math.min(w, h) * 0.28;
+  const r = Math.min(w, h) * 0.3;
+  const len = CONFIG.patternMinLength
+    + Math.floor(Math.random() * (CONFIG.patternMaxLength - CONFIG.patternMinLength + 1));
 
   const patterns = [
-    () => Array.from({ length: CONFIG.patternLength }, (_, i) => ({
-      x: w * 0.18 + ((w * 0.64) / (CONFIG.patternLength - 1)) * i,
-      y: cy + Math.sin(i * 1.2) * r * 0.55,
+    (n) => Array.from({ length: n }, (_, i) => ({
+      x: w * 0.15 + ((w * 0.7) / Math.max(1, n - 1)) * i,
+      y: cy + Math.sin(i * 1.1) * r * 0.5,
     })),
-    () => Array.from({ length: CONFIG.patternLength }, (_, i) => ({
-      x: cx,
-      y: h * 0.22 + ((h * 0.56) / (CONFIG.patternLength - 1)) * i,
+    (n) => Array.from({ length: n }, (_, i) => ({
+      x: cx + Math.sin(i * 0.9) * r * 0.6,
+      y: h * 0.18 + ((h * 0.64) / Math.max(1, n - 1)) * i,
     })),
-    () => [
-      { x: cx, y: cy - r },
-      { x: cx + r, y: cy },
-      { x: cx, y: cy + r },
-      { x: cx - r, y: cy },
-    ],
-    () => Array.from({ length: CONFIG.patternLength }, (_, i) => ({
-      x: w * 0.2 + i * (w * 0.2),
-      y: h * 0.28 + i * (h * 0.14),
-    })),
-    () => Array.from({ length: CONFIG.patternLength }, (_, i) => {
-      const angle = Math.PI * 0.75 + (Math.PI * 0.5 / (CONFIG.patternLength - 1)) * i;
-      return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r * 0.65 };
+    (n) => Array.from({ length: n }, (_, i) => {
+      const angle = -Math.PI / 2 + (Math.PI * 2 / n) * i;
+      return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r * 0.75 };
     }),
-    () => Array.from({ length: CONFIG.patternLength }, (_, i) => ({
-      x: i % 2 === 0 ? w * 0.25 : w * 0.75,
-      y: h * 0.25 + i * (h * 0.16),
+    (n) => Array.from({ length: n }, (_, i) => ({
+      x: w * 0.18 + i * ((w * 0.64) / Math.max(1, n - 1)),
+      y: h * 0.25 + i * ((h * 0.5) / Math.max(1, n - 1)),
+    })),
+    (n) => Array.from({ length: n }, (_, i) => {
+      const angle = Math.PI * 0.8 + (Math.PI * 0.6 / Math.max(1, n - 1)) * i;
+      return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r * 0.6 };
+    }),
+    (n) => Array.from({ length: n }, (_, i) => ({
+      x: i % 2 === 0 ? w * 0.22 : w * 0.78,
+      y: h * 0.2 + i * ((h * 0.6) / Math.max(1, n - 1)),
+    })),
+    (n) => Array.from({ length: n }, (_, i) => {
+      const t = i / Math.max(1, n - 1);
+      return { x: cx + (t - 0.5) * w * 0.7, y: cy + Math.sin(t * Math.PI * 2) * r * 0.45 };
+    }),
+    (n) => Array.from({ length: n }, (_, i) => ({
+      x: cx + (i - (n - 1) / 2) * (w * 0.14),
+      y: cy - r * 0.5 + Math.abs(i - (n - 1) / 2) * (h * 0.12),
     })),
   ];
 
-  return patterns[Math.floor(Math.random() * patterns.length)]();
+  return patterns[Math.floor(Math.random() * patterns.length)](len);
 }
 
 function maybeStartPattern() {
+  if (state.chaseMode || state.endlessMode) return;
   if (state.patternQueue.length > 0) return;
   if (state.totalNotes > 0 && state.totalNotes % CONFIG.patternEvery === 0) {
     const positions = generatePatternPositions();
@@ -276,6 +321,7 @@ function maybeStartPattern() {
     state.patternPreview = positions.map(p => ({ ...p }));
     state.patternRound = {
       points: positions.map(p => ({ ...p })),
+      length: positions.length,
       perfects: 0,
       solidUpTo: 0,
       failed: false,
@@ -371,7 +417,7 @@ function onPatternHit(rating, note) {
       state.patternRound.solidUpTo,
       note.patternIndex + 1
     );
-    if (state.patternRound.perfects >= CONFIG.patternLength) {
+    if (state.patternRound.perfects >= state.patternRound.length) {
       completeConstellation();
     }
   } else {
@@ -382,7 +428,7 @@ function onPatternHit(rating, note) {
 function completeConstellation() {
   if (!state.patternRound || state.patternRound.complete) return;
   state.patternRound.complete = true;
-  state.patternRound.solidUpTo = CONFIG.patternLength;
+  state.patternRound.solidUpTo = state.patternRound.length;
   state.constellationGlow = 1;
   spawnFireworks(state.patternRound.points);
   showFeedback('CONSTELLATION COMPLETE!', 'perfect');
@@ -476,7 +522,7 @@ function spawnNote(hitTime, approachTime, beatEntry = null) {
     y: pos.y,
     isPattern: pos.isPattern || false,
     patternIndex: pos.patternIndex ?? -1,
-    shape: SHAPE_TYPES[state.totalNotes % SHAPE_TYPES.length],
+    shape: SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)],
     approachTime,
     hitTime,
     perfectWindow: windows.perfectWindow,
@@ -498,6 +544,21 @@ function spawnEndlessNote(now) {
   const elapsed = (now - state.gameStartTime) / 1000;
   const approachTime = getEndlessApproachTime(elapsed);
   spawnNote(now + approachTime, approachTime);
+}
+
+function spawnChaseNote(now) {
+  const elapsed = (now - state.gameStartTime) / 1000;
+  const fadeDuration = getChaseFadeDuration(elapsed);
+  const approachTime = fadeDuration * 0.88;
+  spawnNote(now + approachTime, approachTime);
+}
+
+function trySpawnChase(now) {
+  if (!state.chaseMode || hasActiveNote() || !state.endlessWaiting) return;
+  if (now >= state.nextSpawnAt) {
+    state.endlessWaiting = false;
+    spawnChaseNote(now);
+  }
 }
 
 function trySpawnEndless(now) {
@@ -545,7 +606,10 @@ function finishCurrentNote() {
   if (state.endlessMode) {
     state.endlessWaiting = true;
     const elapsed = (performance.now() - state.gameStartTime) / 1000;
-    state.nextSpawnAt = performance.now() + Math.max(40, 160 - elapsed * 3.5);
+    const gap = state.chaseMode
+      ? Math.max(30, 140 - elapsed * 4)
+      : Math.max(40, 160 - elapsed * 3.5);
+    state.nextSpawnAt = performance.now() + gap;
   }
 }
 
@@ -610,11 +674,26 @@ function registerHit(rating, note) {
   if (note) spawnParticles(note.x, note.y);
 }
 
-function handleInput() {
+function handleInput(clientX, clientY) {
   if (!state.running) return;
 
   const note = state.currentNote;
   if (!note || note.clicked) return;
+
+  let mx = state.mouseX;
+  let my = state.mouseY;
+  if (clientX !== undefined && clientY !== undefined) {
+    const pos = getCanvasCoords(clientX, clientY);
+    mx = pos.x;
+    my = pos.y;
+  }
+
+  if (state.chaseMode && !isMouseOnNote(note, mx, my)) {
+    resolveNote(note, 'miss');
+    registerHit('miss');
+    showFeedback('MOVE TO SHAPE!', 'miss');
+    return;
+  }
 
   const now = performance.now();
   const diff = now - note.hitTime;
@@ -686,6 +765,29 @@ function drawNote(note, now) {
   drawShapeOutline(note.x, note.y, note.shape, targetSize, color, 2.5, `${color}10`);
   drawShapeOutline(note.x, note.y, note.shape, approachSize, accent, 3);
 
+  if (state.chaseMode) {
+    const hovering = state.mouseOnCanvas && isMouseOnNote(note, state.mouseX, state.mouseY);
+    const fadeUrgency = Math.max(0, (progress - 0.5) / 0.5);
+    ctx.globalAlpha = 1 - fadeUrgency * 0.35;
+    if (hovering) {
+      ctx.beginPath();
+      ctx.arc(note.x, note.y, targetSize + 28, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(0, 255, 136, 0.6)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } else {
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(state.mouseX, state.mouseY);
+      ctx.lineTo(note.x, note.y);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   if (note.isPattern) {
     ctx.beginPath();
     ctx.arc(note.x, note.y, targetSize + 12, 0, Math.PI * 2);
@@ -715,6 +817,19 @@ function drawNote(note, now) {
   ctx.fill();
 }
 
+function drawChaseCursor() {
+  if (!state.chaseMode || !state.mouseOnCanvas) return;
+  ctx.beginPath();
+  ctx.arc(state.mouseX, state.mouseY, 8, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(0, 255, 136, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(state.mouseX, state.mouseY, 3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 255, 136, 0.8)';
+  ctx.fill();
+}
+
 function drawParticles() {
   for (let i = state.particles.length - 1; i >= 0; i--) {
     const p = state.particles[i];
@@ -735,8 +850,10 @@ function render(now) {
 
   backgroundRenderer.draw(ctx, w, h, now);
 
-  if (state.endlessMode) {
+  if (state.endlessMode && !state.chaseMode) {
     trySpawnEndless(now);
+  } else if (state.chaseMode) {
+    trySpawnChase(now);
   } else {
     skipMissedBeats(now);
   }
@@ -768,6 +885,7 @@ function render(now) {
 
   drawParticles();
   drawFireworks();
+  if (state.chaseMode) drawChaseCursor();
 }
 
 function updateHUD() {
@@ -796,11 +914,15 @@ function showFeedback(text, className) {
 }
 
 function updateProgress() {
-  if (state.endlessMode) {
+  if (state.endlessMode || state.chaseMode) {
     const elapsed = performance.now() - state.gameStartTime;
     const sec = Math.floor(elapsed / 1000);
     els.progressFill.style.width = `${((sec % 45) / 45) * 100}%`;
-    if (els.progressLabel) els.progressLabel.textContent = sec + 's survived';
+    if (els.progressLabel) {
+      els.progressLabel.textContent = state.chaseMode
+        ? sec + 's · chase'
+        : sec + 's survived';
+    }
     return;
   }
   const elapsed = songPlayer.getElapsedMs();
@@ -818,7 +940,7 @@ function gameLoop() {
   render(now);
   updateProgress();
 
-  if (!state.endlessMode && (songPlayer.isFinished() || state.beatQueueIndex >= state.beatQueue.length)) {
+  if (!state.endlessMode && !state.chaseMode && (songPlayer.isFinished() || state.beatQueueIndex >= state.beatQueue.length)) {
     if (!hasActiveNote()) { endGame(); return; }
   }
 
@@ -846,7 +968,9 @@ function resetGameState() {
   state.fireworks = [];
   state.constellationGlow = 0;
   state.endlessMode = false;
+  state.chaseMode = false;
   state.endlessWaiting = false;
+  state.mouseOnCanvas = false;
   state.nextSpawnAt = 0;
   state.gameStartTime = 0;
   state.particles = [];
@@ -859,12 +983,13 @@ function startGame(songId) {
 
   state.selectedSongId = songId || state.selectedSongId;
   state.song = songPlayer.getSong(state.selectedSongId);
-  state.endlessMode = !!state.song.isEndless;
+  state.endlessMode = !!(state.song.isEndless || state.song.isChase);
+  state.chaseMode = !!state.song.isChase;
   state.gameStartTime = performance.now();
 
   backgroundRenderer.setTheme(state.selectedSongId);
 
-  if (state.endlessMode) {
+  if (state.endlessMode || state.chaseMode) {
     state.beatQueue = [];
   } else {
     state.beatQueue = songPlayer.buildBeatMap(state.song).map(beatIndex => ({
@@ -884,8 +1009,12 @@ function startGame(songId) {
 
   const progressTitle = document.querySelector('.progress-title');
   if (progressTitle) {
-    progressTitle.textContent = state.endlessMode ? 'ENDLESS' : 'SONG PROGRESS';
+    if (state.chaseMode) progressTitle.textContent = 'CURSOR CHASE';
+    else if (state.endlessMode) progressTitle.textContent = 'ENDLESS';
+    else progressTitle.textContent = 'SONG PROGRESS';
   }
+
+  els.canvas.style.cursor = state.chaseMode ? 'none' : 'crosshair';
 
   updateHUD();
   updateComboDisplay();
@@ -895,7 +1024,8 @@ function startGame(songId) {
 
   if (state.endlessMode) {
     state.endlessWaiting = false;
-    spawnEndlessNote(performance.now());
+    if (state.chaseMode) spawnChaseNote(performance.now());
+    else spawnEndlessNote(performance.now());
   } else {
     const firstBeat = state.beatQueue[0];
     if (firstBeat) {
@@ -926,7 +1056,8 @@ function endGame() {
   els.missCount.textContent = state.misses + state.earlys + state.lates;
   if (els.finalSong) {
     els.finalSong.textContent = state.song
-      ? state.song.title + (state.endlessMode ? ` · ${Math.floor((performance.now() - state.gameStartTime) / 1000)}s` : '')
+      ? state.song.title + ((state.endlessMode || state.chaseMode)
+        ? ` · ${Math.floor((performance.now() - state.gameStartTime) / 1000)}s` : '')
       : '';
   }
 
@@ -955,6 +1086,23 @@ function buildLevelSelect() {
   endlessCard.addEventListener('click', () => startGame('endless'));
   els.songGrid.appendChild(endlessCard);
 
+  const chaseCard = document.createElement('button');
+  chaseCard.className = 'song-card song-card-chase';
+  chaseCard.style.setProperty('--song-color', CHASE_SONG.color);
+  chaseCard.style.setProperty('--song-accent', CHASE_SONG.accent);
+  chaseCard.innerHTML = `
+    <div class="song-card-top">
+      <span class="song-genre">${CHASE_SONG.genre}</span>
+      <span class="song-difficulty">🖱️</span>
+    </div>
+    <span class="song-name">${CHASE_SONG.title}</span>
+    <span class="song-meta">Move mouse to shapes · click before fade</span>
+    <span class="song-instruments">${CHASE_SONG.instruments.join(' · ')}</span>
+    <span class="song-desc">${CHASE_SONG.description}</span>
+  `;
+  chaseCard.addEventListener('click', () => startGame('chase'));
+  els.songGrid.appendChild(chaseCard);
+
   SONGS.forEach(song => {
     const card = document.createElement('button');
     card.className = 'song-card';
@@ -982,14 +1130,25 @@ document.getElementById('retry-btn').addEventListener('click', () => startGame(s
 document.getElementById('back-btn').addEventListener('click', () => showScreen('start'));
 document.getElementById('select-back-btn').addEventListener('click', () => showScreen('select'));
 
-els.canvas.addEventListener('click', handleInput);
+els.canvas.addEventListener('click', (e) => handleInput(e.clientX, e.clientY));
+
+els.canvas.addEventListener('mousemove', (e) => {
+  const pos = getCanvasCoords(e.clientX, e.clientY);
+  state.mouseX = pos.x;
+  state.mouseY = pos.y;
+  state.mouseOnCanvas = true;
+});
+
+els.canvas.addEventListener('mouseleave', () => {
+  state.mouseOnCanvas = false;
+});
 
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     e.preventDefault();
     if (screens.start.classList.contains('active')) showScreen('select');
     else if (screens.results.classList.contains('active')) startGame(state.selectedSongId);
-    else if (screens.game.classList.contains('active')) handleInput();
+    else if (screens.game.classList.contains('active') && !state.chaseMode) handleInput();
   }
 });
 

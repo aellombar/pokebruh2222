@@ -9,6 +9,7 @@ const THEME_MAP = {
   orchestral: 'medieval',
   rock: 'concert',
   endless: 'void',
+  chase: 'chase',
 };
 
 class BackgroundRenderer {
@@ -44,6 +45,7 @@ class BackgroundRenderer {
       case 'medieval': this.drawMedieval(ctx, w, h); break;
       case 'concert': this.drawConcert(ctx, w, h); break;
       case 'void': this.drawVoid(ctx, w, h); break;
+      case 'chase': this.drawChase(ctx, w, h); break;
       default: this.drawCyberpunk(ctx, w, h);
     }
   }
@@ -331,6 +333,55 @@ class BackgroundRenderer {
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(w / 2, h / 2, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  drawChase(ctx, w, h) {
+    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.7);
+    g.addColorStop(0, '#0a1810');
+    g.addColorStop(1, '#050810');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    // Target reticle grid
+    ctx.strokeStyle = 'rgba(0, 255, 136, 0.06)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < w; x += 60) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let y = 0; y < h; y += 60) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // Pulsing rings from center
+    for (let r = 0; r < 4; r++) {
+      const radius = 60 + ((this.t * 50 + r * 80) % 350);
+      ctx.strokeStyle = `rgba(255, 107, 157, ${0.12 - radius / 3000})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Floating target markers
+    for (let i = 0; i < 8; i++) {
+      const px = (Math.sin(this.t * 0.7 + i * 1.3) * 0.35 + 0.5) * w;
+      const py = (Math.cos(this.t * 0.5 + i * 0.9) * 0.35 + 0.5) * h;
+      ctx.strokeStyle = `rgba(0, 255, 136, ${0.08 + Math.sin(this.t + i) * 0.04})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(px, py, 12, 0, Math.PI * 2);
+      ctx.moveTo(px - 18, py);
+      ctx.lineTo(px + 18, py);
+      ctx.moveTo(px, py - 18);
+      ctx.lineTo(px, py + 18);
       ctx.stroke();
     }
   }

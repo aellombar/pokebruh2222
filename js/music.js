@@ -235,6 +235,25 @@ const ENDLESS_SONG = {
   schedule: scheduleEndless,
 };
 
+const CHASE_SONG = {
+  id: 'chase',
+  title: 'Cursor Chase',
+  genre: 'Chase Mode',
+  difficulty: 0,
+  difficultyLabel: 'Mouse',
+  isChase: true,
+  isEndless: true,
+  bpm: 120,
+  duration: 99999,
+  approachBeats: 2.5,
+  noteInterval: 4,
+  color: '#00ff88',
+  accent: '#ff6b9d',
+  instruments: ['Mouse Tracking', 'Fade Timer', 'Speed Ramp', 'Precision Clicks'],
+  description: 'Move your cursor onto each shape and click before it fades away.',
+  schedule: scheduleEndless,
+};
+
 // ─── Song definitions ────────────────────────────────────────────
 const SONGS = [
   {
@@ -338,6 +357,7 @@ class SongPlayer {
 
   getSong(id) {
     if (id === 'endless') return ENDLESS_SONG;
+    if (id === 'chase') return CHASE_SONG;
     return SONGS.find(s => s.id === id) || SONGS[0];
   }
 
@@ -366,7 +386,7 @@ class SongPlayer {
     this.playing = true;
 
     const beatDur = 60 / song.bpm;
-    const total = song.isEndless ? 1200 : this.getTotalBeats(song);
+    const total = (song.isEndless || song.isChase) ? 1200 : this.getTotalBeats(song);
 
     for (let beat = 0; beat < total; beat++) {
       song.schedule(this.ctx, this.master, this.startTime, beat, beatDur);
@@ -395,7 +415,7 @@ class SongPlayer {
 
   isFinished() {
     if (!this.song) return true;
-    if (this.song.isEndless) return false;
+    if (this.song.isEndless || this.song.isChase) return false;
     return this.getElapsedMs() >= this.song.duration * 1000;
   }
 }
