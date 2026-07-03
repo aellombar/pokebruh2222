@@ -1,0 +1,401 @@
+/* Beat Strike — Rhythm Game Styles */
+
+:root {
+  --bg-dark: #0a0a12;
+  --bg-card: #12121f;
+  --accent-cyan: #00f0ff;
+  --accent-magenta: #ff00aa;
+  --accent-gold: #ffd700;
+  --accent-green: #00ff88;
+  --text-primary: #e8e8f0;
+  --text-muted: #8888aa;
+  --perfect-color: #00f0ff;
+  --good-color: #ffd700;
+  --miss-color: #ff4466;
+  --glow-cyan: 0 0 20px rgba(0, 240, 255, 0.5);
+  --glow-magenta: 0 0 20px rgba(255, 0, 170, 0.5);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Rajdhani', sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+}
+
+/* Screens */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.screen.active {
+  display: flex;
+  opacity: 1;
+}
+
+/* Start Screen */
+#start-screen {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, rgba(255, 0, 170, 0.06) 0%, transparent 50%),
+    var(--bg-dark);
+  gap: 2.5rem;
+  padding: 2rem;
+}
+
+.logo h1 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-align: center;
+  filter: drop-shadow(0 0 30px rgba(0, 240, 255, 0.3));
+}
+
+.tagline {
+  font-size: 1.2rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 0.5rem;
+  letter-spacing: 0.1em;
+}
+
+.instructions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 420px;
+  width: 100%;
+}
+
+.instruction-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.instruction-item .key {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.3rem 0.6rem;
+  background: rgba(0, 240, 255, 0.15);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 4px;
+  color: var(--accent-cyan);
+  white-space: nowrap;
+}
+
+.instruction-item .rating {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.rating.perfect {
+  background: rgba(0, 240, 255, 0.15);
+  border: 1px solid var(--perfect-color);
+  color: var(--perfect-color);
+}
+
+.rating.good {
+  background: rgba(255, 215, 0, 0.15);
+  border: 1px solid var(--good-color);
+  color: var(--good-color);
+}
+
+.combo-hint span:first-child {
+  font-size: 1.2rem;
+}
+
+.btn-primary {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  padding: 1rem 3rem;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+  border: none;
+  border-radius: 8px;
+  color: var(--bg-dark);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: var(--glow-cyan);
+}
+
+.btn-primary:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 40px rgba(0, 240, 255, 0.6);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+/* Game Screen */
+#game-screen {
+  background: var(--bg-dark);
+}
+
+.hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1.5rem 2rem;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.stat-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+
+.stat-value {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.combo-display {
+  text-align: center;
+  animation: comboPulse 0.3s ease;
+}
+
+.combo-display.hidden {
+  display: none;
+}
+
+#combo-count {
+  display: block;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 3rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--accent-gold), var(--accent-magenta));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+}
+
+.combo-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.3em;
+  color: var(--accent-gold);
+}
+
+@keyframes comboPulse {
+  0% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+#game-area {
+  flex: 1;
+  width: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#game-canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+.feedback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  pointer-events: none;
+  z-index: 20;
+  animation: feedbackPop 0.6s ease forwards;
+}
+
+.feedback.hidden {
+  display: none;
+}
+
+.feedback.perfect {
+  color: var(--perfect-color);
+  text-shadow: var(--glow-cyan);
+}
+
+.feedback.good {
+  color: var(--good-color);
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+}
+
+.feedback.miss {
+  color: var(--miss-color);
+  text-shadow: 0 0 20px rgba(255, 68, 102, 0.5);
+}
+
+@keyframes feedbackPop {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  30% {
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -80%) scale(1);
+  }
+}
+
+.progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
+  transition: width 0.1s linear;
+  box-shadow: var(--glow-cyan);
+}
+
+/* Results Screen */
+#results-screen {
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(255, 0, 170, 0.08) 0%, transparent 60%),
+    var(--bg-dark);
+}
+
+.results-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 3rem;
+  text-align: center;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.results-card h2 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.8rem;
+  letter-spacing: 0.2em;
+  margin-bottom: 2rem;
+  color: var(--accent-magenta);
+}
+
+.results-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.result-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.result-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.result-value {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+
+.result-breakdown {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  font-size: 0.9rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.perfect-count { color: var(--perfect-color); }
+.good-count { color: var(--good-color); }
+.miss-count { color: var(--miss-color); }
+
+/* Responsive */
+@media (max-width: 600px) {
+  .hud {
+    padding: 1rem;
+  }
+
+  .stat-value {
+    font-size: 1.3rem;
+  }
+
+  #combo-count {
+    font-size: 2rem;
+  }
+
+  .results-card {
+    padding: 2rem 1.5rem;
+  }
+}
