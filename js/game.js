@@ -12,9 +12,30 @@ const CONFIG = {
   approachStartScale: 3.2,
   missLimit: 10,
   audioLeadMs: 80,
+  patternEvery: 5,
+  patternLength: 4,
+  hitFadeMs: 250,
+  missFadeMs: 300,
 };
 
 const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond'];
+
+const PERFECT_WORDS = [
+  'Perfect', 'Flawless', 'Impeccable', 'Spot On', 'Dead On', 'Nailed It',
+  'Amazing', 'Incredible', 'Stunning', 'Sensational', 'Magnificent', 'Phenomenal',
+  'Brilliant', 'Outstanding', 'Superb', 'Fantastic', 'Wonderful', 'Excellent',
+  'Exquisite', 'Splendid', 'Marvelous', 'Legendary', 'Unreal', 'Crushing It',
+];
+
+const MISS_WORDS = [
+  'Bummer', 'Too Bad', 'Tough Luck', 'Oh No', 'Darn', 'Unlucky', 'Rough',
+  'Oof', 'Missed It', 'So Close', 'Not Quite', 'Aw Shucks', 'What a Shame',
+  'Drat', 'That Hurts', 'Yikes', 'Almost', 'Close One', 'Nearly', 'Shoot',
+];
+
+function pickRandom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 const state = {
   running: false,
@@ -35,6 +56,8 @@ const state = {
   currentNote: null,
   speedLevel: 0,
   perfectHitStreak: 0,
+  patternQueue: [],
+  patternPreview: [],
   particles: [],
   audioCtx: null,
 };
@@ -164,25 +187,117 @@ function drawShapeOutline(x, y, type, size, color, lineWidth, fill = null) {
   ctx.restore();
 }
 
-// ─── Beat-synced Note Spawning ───────────────────────────────────
+// ─── Spawn Positions & Patterns ──────────────────────────────────
+function randomPosition() {
+  const w = els.canvas.width;
+  const h = els.canvas.height;
+  const margin = CONFIG.shapeSize * CONFIG.approachStartScale + 50;
+  return {
+    x: margin + Math.random() * (w - margin * 2),
+    y: margin + Math.random() * (h - margin * 2),
+  };
+}
+
+function generatePatternPositions() {
+  const w = els.canvas.width;
+  const h = els.canvas.height;
+  const cx = w / 2;
+  const cy = h / 2;
+  const r = Math.min(w, h) * 0.28;
+
+  const patterns = [
+    () => Array.from({ length: CONFIG.patternLength }, (_, i) => ({
+      x: w * 0.18 + ((w * 0.64) / (CONFIG.patternLength - 1)) * i,
+      y: cy + Math.sin(i * 1.2) * r * 0.55,
+    })),
+    () => Array.from({ length: CONFIG.patternLength }, (_, i) => ({
+      x: cx,
+      y: h * 0.22 + ((h * 0.56) / (CONFIG.patternLength - 1)) * i,
+    })),
+    () => [
+      { x: cx, y: cy - r },
+      { x: cx + r, y: cy },
+      { x: cx, y: cy + r },
+      { x: cx - r, y: cy },
+    ],
+    () => Array.from({ length: CONFIG.patternLength }, (_, i) => ({
+      x: w * 0.2 + i * (w * 0.2),
+      y: h * 0.28 + i * (h * 0.14),
+    })),
+    () => Array.from({ length: CONFIG.patternLength }, (_, i) => {
+      const angle = Math.PI * 0.75 + (Math.PI * 0.5 / (CONFIG.patternLength - 1)) * i;
+      return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r * 0.65 };
+    }),
+    () => Array.from({ length: CONFIG.patternLength }, (_, i) => ({
+      x: i % 2 === 0 ? w * 0.25 : w * 0.75,
+      y: h * 0.25 + i * (h * 0.16),
+    })),
+  ];
+
+  return patterns[Math.floor(Math.random() * patterns.length)]();
+}
+
+function maybeStartPattern() {
+  if (state.patternQueue.length > 0) return;
+  if (state.totalNotes > 0 && state.totalNotes % CONFIG.patternEvery === 0) {
+    const positions = generatePatternPositions();
+    state.patternQueue = [...positions];
+    state.patternPreview = positions.map(p => ({ ...p }));
+  }
+}
+
+function getSpawnPosition() {
+  maybeStartPattern();
+  if (state.patternQueue.length > 0) {
+    const pos = state.patternQueue.shift();
+    return { ...pos, isPattern: true };
+  }
+  state.patternPreview = [];
+  return randomPosition();
+}
+
+function drawPatternPreview() {
+  if (!state.patternPreview.length) return;
+  const color = state.song ? state.song.color : '#00f0ff';
+
+  ctx.strokeStyle = `${color}33`;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 8]);
+  ctx.beginPath();
+  state.patternPreview.forEach((p, i) => {
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  state.patternPreview.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = `${color}${i === 0 ? '88' : '33'}`;
+    ctx.fill();
+  });
+}
 function hasActiveNote() {
   return state.currentNote !== null;
 }
 
 function spawnNoteForBeat(beatEntry, hitTime, approachTime) {
-  const w = els.canvas.width;
-  const h = els.canvas.height;
+  const pos = getSpawnPosition();
 
   state.currentNote = {
     id: state.totalNotes++,
     beatIndex: beatEntry.beatIndex,
-    x: w / 2,
-    y: h / 2,
+    x: pos.x,
+    y: pos.y,
+    isPattern: pos.isPattern || false,
     shape: SHAPE_TYPES[state.totalNotes % SHAPE_TYPES.length],
     approachTime,
     hitTime,
     hit: false,
     missed: false,
+    clicked: false,
+    clickTime: 0,
     rating: null,
   };
   beatEntry.spawned = true;
@@ -219,6 +334,17 @@ function finishCurrentNote() {
   if (beat) beat.resolved = true;
   state.currentNote = null;
   state.beatQueueIndex++;
+  if (state.patternPreview.length > 0) {
+    state.patternPreview.shift();
+  }
+}
+
+function resolveNote(note, rating) {
+  note.clicked = true;
+  note.clickTime = performance.now();
+  note.rating = rating;
+  if (rating === 'perfect') note.hit = true;
+  else note.missed = true;
 }
 
 function calculatePoints(rating) {
@@ -233,7 +359,7 @@ function registerHit(rating, note) {
     state.combo = 0;
     state.perfectHitStreak = 0;
     updateComboDisplay();
-    showFeedback('MISS', 'miss');
+    showFeedback(pickRandom(MISS_WORDS), 'miss');
     playHitSound('miss');
     if (state.misses >= CONFIG.missLimit) endGame();
     return;
@@ -245,7 +371,7 @@ function registerHit(rating, note) {
     if (rating === 'early') state.earlys++;
     else state.lates++;
     updateComboDisplay();
-    showFeedback(rating.toUpperCase(), rating);
+    showFeedback(rating === 'early' ? 'TOO EARLY' : pickRandom(MISS_WORDS), rating);
     playHitSound(rating);
     return;
   }
@@ -266,7 +392,8 @@ function registerHit(rating, note) {
 
   updateHUD();
   updateComboDisplay();
-  showFeedback(rating.toUpperCase() + ' +' + points + (speedUp ? ' — SPEED UP!' : ''), rating);
+  const word = pickRandom(PERFECT_WORDS);
+  showFeedback(word + ' +' + points + (speedUp ? ' — SPEED UP!' : ''), rating);
   playHitSound(rating);
   if (note) spawnParticles(note.x, note.y);
 }
@@ -275,31 +402,25 @@ function handleInput() {
   if (!state.running) return;
 
   const note = state.currentNote;
-  if (!note || note.hit || note.missed) {
-    registerHit('miss');
-    return;
-  }
+  if (!note || note.clicked) return;
 
   const now = performance.now();
   const diff = now - note.hitTime;
 
   if (Math.abs(diff) > CONFIG.goodWindow) {
+    resolveNote(note, diff < 0 ? 'early' : 'miss');
     registerHit(diff < 0 ? 'early' : 'miss');
     return;
   }
 
-  note.hit = true;
-
   if (Math.abs(diff) <= CONFIG.perfectWindow) {
-    note.rating = 'perfect';
+    resolveNote(note, 'perfect');
     registerHit('perfect', note);
   } else if (diff < 0) {
-    note.rating = 'early';
-    note.missed = true;
+    resolveNote(note, 'early');
     registerHit('early');
   } else {
-    note.rating = 'late';
-    note.missed = true;
+    resolveNote(note, 'late');
     registerHit('late');
   }
 }
@@ -351,6 +472,16 @@ function drawNote(note, now) {
   drawShapeOutline(note.x, note.y, note.shape, targetSize, color, 2.5, `${color}10`);
   drawShapeOutline(note.x, note.y, note.shape, approachSize, accent, 3);
 
+  if (note.isPattern) {
+    ctx.beginPath();
+    ctx.arc(note.x, note.y, targetSize + 12, 0, Math.PI * 2);
+    ctx.strokeStyle = `${accent}44`;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   if (progress > 0.85) {
     const flash = (progress - 0.85) / 0.15;
     drawShapeOutline(note.x, note.y, note.shape, targetSize, `rgba(255,255,255,${flash * 0.4})`, 1.5);
@@ -386,17 +517,20 @@ function render(now) {
   for (let y = 0; y < h; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
 
   skipMissedBeats(now);
+  drawPatternPreview();
 
   const note = state.currentNote;
-  if (note && !note.hit && !note.missed && now > note.hitTime + CONFIG.goodWindow) {
-    note.missed = true;
+  if (note && !note.clicked && now > note.hitTime + CONFIG.goodWindow) {
+    resolveNote(note, 'late');
     registerHit('late');
   }
 
   if (note) {
     drawNote(note, now);
-    if (note.hit && now - note.hitTime > 400) finishCurrentNote();
-    else if (note.missed && now - note.hitTime > 700) finishCurrentNote();
+    const fadeStart = note.clickTime || note.hitTime;
+    if (note.clicked && note.hit && now - fadeStart > CONFIG.hitFadeMs) finishCurrentNote();
+    else if (note.clicked && note.missed && now - fadeStart > CONFIG.missFadeMs) finishCurrentNote();
+    else if (!note.clicked && note.missed && now - note.hitTime > CONFIG.missFadeMs) finishCurrentNote();
   }
 
   drawParticles();
@@ -465,6 +599,8 @@ function resetGameState() {
   state.currentNote = null;
   state.speedLevel = 0;
   state.perfectHitStreak = 0;
+  state.patternQueue = [];
+  state.patternPreview = [];
   state.particles = [];
   state.beatQueueIndex = 0;
 }
