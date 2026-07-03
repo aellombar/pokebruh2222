@@ -200,6 +200,41 @@ function scheduleHipHop(ctx, dest, start, beat, beatDur) {
   }
 }
 
+function scheduleEndless(ctx, dest, start, beat, beatDur) {
+  const t = start + beat * beatDur;
+  const pos = beat % 4;
+  const bar = Math.floor(beat / 4) % 4;
+
+  if (pos === 0) playKick(ctx, dest, t, 0.7);
+  if (pos === 2) playSnare(ctx, dest, t, 0.32);
+  if (beat % 2 === 0) playHiHat(ctx, dest, t, 0.06);
+
+  const bass = [NOTE.C3, NOTE.E3, NOTE.G3, NOTE.A3];
+  if (pos === 0) playBass(ctx, dest, t, bass[bar], 0.28, beatDur * 1.5);
+
+  if (beat % 4 === 1) {
+    playOsc(ctx, dest, t, NOTE.C5, 'square', beatDur * 0.2, 0.05, NOTE.G4);
+  }
+}
+
+const ENDLESS_SONG = {
+  id: 'endless',
+  title: 'Endless Rush',
+  genre: 'Endless',
+  difficulty: 0,
+  difficultyLabel: '∞',
+  isEndless: true,
+  bpm: 130,
+  duration: 99999,
+  approachBeats: 2.5,
+  noteInterval: 4,
+  color: '#ff00ff',
+  accent: '#00ffff',
+  instruments: ['Driving Beat', 'Rising Tempo', 'Random Windows', 'No Mercy'],
+  description: 'Survive as long as you can — speed ramps up forever.',
+  schedule: scheduleEndless,
+};
+
 // ─── Song definitions ────────────────────────────────────────────
 const SONGS = [
   {
@@ -302,6 +337,7 @@ class SongPlayer {
   }
 
   getSong(id) {
+    if (id === 'endless') return ENDLESS_SONG;
     return SONGS.find(s => s.id === id) || SONGS[0];
   }
 
@@ -330,7 +366,7 @@ class SongPlayer {
     this.playing = true;
 
     const beatDur = 60 / song.bpm;
-    const total = this.getTotalBeats(song);
+    const total = song.isEndless ? 1200 : this.getTotalBeats(song);
 
     for (let beat = 0; beat < total; beat++) {
       song.schedule(this.ctx, this.master, this.startTime, beat, beatDur);
@@ -359,6 +395,7 @@ class SongPlayer {
 
   isFinished() {
     if (!this.song) return true;
+    if (this.song.isEndless) return false;
     return this.getElapsedMs() >= this.song.duration * 1000;
   }
 }

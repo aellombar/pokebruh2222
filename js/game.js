@@ -7,6 +7,10 @@ const CONFIG = {
   speedIncreasePerLevel: 0.1,
   perfectWindow: 70,
   goodWindow: 140,
+  minPerfectWindow: 45,
+  maxPerfectWindow: 95,
+  minGoodWindow: 100,
+  maxGoodWindow: 200,
   basePoints: 100,
   shapeSize: 58,
   approachStartScale: 3.2,
@@ -16,6 +20,8 @@ const CONFIG = {
   patternLength: 4,
   hitFadeMs: 250,
   missFadeMs: 300,
+  endlessBaseApproach: 1800,
+  endlessMinApproach: 350,
 };
 
 const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond'];
@@ -35,6 +41,22 @@ const MISS_WORDS = [
 
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function rollTimingWindows() {
+  const perfectWindow = CONFIG.minPerfectWindow
+    + Math.floor(Math.random() * (CONFIG.maxPerfectWindow - CONFIG.minPerfectWindow));
+  const multiplier = 1.65 + Math.random() * 0.55;
+  const goodWindow = Math.min(
+    CONFIG.maxGoodWindow,
+    Math.max(CONFIG.minGoodWindow, Math.round(perfectWindow * multiplier))
+  );
+  return { perfectWindow, goodWindow };
+}
+
+function getEndlessApproachTime(elapsedSec) {
+  const factor = 1 + elapsedSec * 0.022;
+  return Math.max(CONFIG.endlessMinApproach, CONFIG.endlessBaseApproach / factor);
 }
 
 const state = {
@@ -61,6 +83,10 @@ const state = {
   patternRound: null,
   fireworks: [],
   constellationGlow: 0,
+  endlessMode: false,
+  endlessWaiting: false,
+  nextSpawnAt: 0,
+  gameStartTime: 0,
   particles: [],
   audioCtx: null,
 };
@@ -439,12 +465,13 @@ function hasActiveNote() {
   return state.currentNote !== null;
 }
 
-function spawnNoteForBeat(beatEntry, hitTime, approachTime) {
+function spawnNote(hitTime, approachTime, beatEntry = null) {
   const pos = getSpawnPosition();
+  const windows = rollTimingWindows();
 
   state.currentNote = {
     id: state.totalNotes++,
-    beatIndex: beatEntry.beatIndex,
+    beatIndex: beatEntry ? beatEntry.beatIndex : -1,
     x: pos.x,
     y: pos.y,
     isPattern: pos.isPattern || false,
@@ -452,13 +479,33 @@ function spawnNoteForBeat(beatEntry, hitTime, approachTime) {
     shape: SHAPE_TYPES[state.totalNotes % SHAPE_TYPES.length],
     approachTime,
     hitTime,
+    perfectWindow: windows.perfectWindow,
+    goodWindow: windows.goodWindow,
     hit: false,
     missed: false,
     clicked: false,
     clickTime: 0,
     rating: null,
   };
-  beatEntry.spawned = true;
+  if (beatEntry) beatEntry.spawned = true;
+}
+
+function spawnNoteForBeat(beatEntry, hitTime, approachTime) {
+  spawnNote(hitTime, approachTime, beatEntry);
+}
+
+function spawnEndlessNote(now) {
+  const elapsed = (now - state.gameStartTime) / 1000;
+  const approachTime = getEndlessApproachTime(elapsed);
+  spawnNote(now + approachTime, approachTime);
+}
+
+function trySpawnEndless(now) {
+  if (!state.endlessMode || hasActiveNote() || !state.endlessWaiting) return;
+  if (now >= state.nextSpawnAt) {
+    state.endlessWaiting = false;
+    spawnEndlessNote(now);
+  }
 }
 
 function skipMissedBeats(now) {
@@ -474,7 +521,7 @@ function skipMissedBeats(now) {
     const hitTime = beatToPerfTime(beat.beatIndex);
     const approachTime = getApproachTime();
 
-    if (now > hitTime + CONFIG.goodWindow) {
+    if (now > hitTime + CONFIG.maxGoodWindow) {
       beat.resolved = true;
       state.beatQueueIndex++;
       continue;
@@ -488,10 +535,18 @@ function skipMissedBeats(now) {
 }
 
 function finishCurrentNote() {
-  const beat = state.beatQueue[state.beatQueueIndex];
-  if (beat) beat.resolved = true;
+  if (!state.endlessMode) {
+    const beat = state.beatQueue[state.beatQueueIndex];
+    if (beat) beat.resolved = true;
+    state.beatQueueIndex++;
+  }
   state.currentNote = null;
-  state.beatQueueIndex++;
+
+  if (state.endlessMode) {
+    state.endlessWaiting = true;
+    const elapsed = (performance.now() - state.gameStartTime) / 1000;
+    state.nextSpawnAt = performance.now() + Math.max(40, 160 - elapsed * 3.5);
+  }
 }
 
 function resolveNote(note, rating) {
@@ -563,14 +618,16 @@ function handleInput() {
 
   const now = performance.now();
   const diff = now - note.hitTime;
+  const goodWindow = note.goodWindow;
+  const perfectWindow = note.perfectWindow;
 
-  if (Math.abs(diff) > CONFIG.goodWindow) {
+  if (Math.abs(diff) > goodWindow) {
     resolveNote(note, diff < 0 ? 'early' : 'miss');
     registerHit(diff < 0 ? 'early' : 'miss');
     return;
   }
 
-  if (Math.abs(diff) <= CONFIG.perfectWindow) {
+  if (Math.abs(diff) <= perfectWindow) {
     resolveNote(note, 'perfect');
     registerHit('perfect', note);
   } else if (diff < 0) {
@@ -644,6 +701,14 @@ function drawNote(note, now) {
     drawShapeOutline(note.x, note.y, note.shape, targetSize, `rgba(255,255,255,${flash * 0.4})`, 1.5);
   }
 
+  // Timing window indicator ring
+  const windowRatio = note.perfectWindow / CONFIG.maxGoodWindow;
+  ctx.beginPath();
+  ctx.arc(note.x, note.y, targetSize + 18, 0, Math.PI * 2);
+  ctx.strokeStyle = `${color}${Math.round(30 + windowRatio * 40).toString(16).padStart(2, '0')}`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
   ctx.beginPath();
   ctx.arc(note.x, note.y, 3, 0, Math.PI * 2);
   ctx.fillStyle = color;
@@ -668,12 +733,13 @@ function render(now) {
   const w = els.canvas.width, h = els.canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x < w; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
-  for (let y = 0; y < h; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  backgroundRenderer.draw(ctx, w, h, now);
 
-  skipMissedBeats(now);
+  if (state.endlessMode) {
+    trySpawnEndless(now);
+  } else {
+    skipMissedBeats(now);
+  }
   drawPatternPreview();
 
   if (state.constellationGlow > 0) {
@@ -687,7 +753,7 @@ function render(now) {
   }
 
   const note = state.currentNote;
-  if (note && !note.clicked && now > note.hitTime + CONFIG.goodWindow) {
+  if (note && !note.clicked && now > note.hitTime + note.goodWindow) {
     resolveNote(note, 'late');
     registerHit('late');
   }
@@ -730,6 +796,13 @@ function showFeedback(text, className) {
 }
 
 function updateProgress() {
+  if (state.endlessMode) {
+    const elapsed = performance.now() - state.gameStartTime;
+    const sec = Math.floor(elapsed / 1000);
+    els.progressFill.style.width = `${((sec % 45) / 45) * 100}%`;
+    if (els.progressLabel) els.progressLabel.textContent = sec + 's survived';
+    return;
+  }
   const elapsed = songPlayer.getElapsedMs();
   const total = state.song.duration * 1000;
   const pct = Math.min(100, (elapsed / total) * 100);
@@ -745,7 +818,7 @@ function gameLoop() {
   render(now);
   updateProgress();
 
-  if (songPlayer.isFinished() || state.beatQueueIndex >= state.beatQueue.length) {
+  if (!state.endlessMode && (songPlayer.isFinished() || state.beatQueueIndex >= state.beatQueue.length)) {
     if (!hasActiveNote()) { endGame(); return; }
   }
 
@@ -772,6 +845,10 @@ function resetGameState() {
   state.patternRound = null;
   state.fireworks = [];
   state.constellationGlow = 0;
+  state.endlessMode = false;
+  state.endlessWaiting = false;
+  state.nextSpawnAt = 0;
+  state.gameStartTime = 0;
   state.particles = [];
   state.beatQueueIndex = 0;
 }
@@ -782,9 +859,18 @@ function startGame(songId) {
 
   state.selectedSongId = songId || state.selectedSongId;
   state.song = songPlayer.getSong(state.selectedSongId);
-  state.beatQueue = songPlayer.buildBeatMap(state.song).map(beatIndex => ({
-    beatIndex, spawned: false, resolved: false,
-  }));
+  state.endlessMode = !!state.song.isEndless;
+  state.gameStartTime = performance.now();
+
+  backgroundRenderer.setTheme(state.selectedSongId);
+
+  if (state.endlessMode) {
+    state.beatQueue = [];
+  } else {
+    state.beatQueue = songPlayer.buildBeatMap(state.song).map(beatIndex => ({
+      beatIndex, spawned: false, resolved: false,
+    }));
+  }
 
   state.running = true;
   state.songStartPerf = performance.now() + CONFIG.audioLeadMs;
@@ -796,18 +882,28 @@ function startGame(songId) {
     els.songTitle.style.color = state.song.color;
   }
 
+  const progressTitle = document.querySelector('.progress-title');
+  if (progressTitle) {
+    progressTitle.textContent = state.endlessMode ? 'ENDLESS' : 'SONG PROGRESS';
+  }
+
   updateHUD();
   updateComboDisplay();
   updateProgress();
   showScreen('game');
   resizeCanvas();
 
-  const firstBeat = state.beatQueue[0];
-  if (firstBeat) {
-    const hitTime = beatToPerfTime(firstBeat.beatIndex);
-    const approachTime = getApproachTime();
-    spawnNoteForBeat(firstBeat, hitTime, approachTime);
-    state.beatQueueIndex = 0;
+  if (state.endlessMode) {
+    state.endlessWaiting = false;
+    spawnEndlessNote(performance.now());
+  } else {
+    const firstBeat = state.beatQueue[0];
+    if (firstBeat) {
+      const hitTime = beatToPerfTime(firstBeat.beatIndex);
+      const approachTime = getApproachTime();
+      spawnNoteForBeat(firstBeat, hitTime, approachTime);
+      state.beatQueueIndex = 0;
+    }
   }
 
   render(performance.now());
@@ -828,7 +924,11 @@ function endGame() {
   els.perfectCount.textContent = state.perfects;
   els.goodCount.textContent = state.goods;
   els.missCount.textContent = state.misses + state.earlys + state.lates;
-  if (els.finalSong) els.finalSong.textContent = state.song ? state.song.title : '';
+  if (els.finalSong) {
+    els.finalSong.textContent = state.song
+      ? state.song.title + (state.endlessMode ? ` · ${Math.floor((performance.now() - state.gameStartTime) / 1000)}s` : '')
+      : '';
+  }
 
   showScreen('results');
 }
@@ -837,6 +937,23 @@ function endGame() {
 function buildLevelSelect() {
   if (!els.songGrid) return;
   els.songGrid.innerHTML = '';
+
+  const endlessCard = document.createElement('button');
+  endlessCard.className = 'song-card song-card-endless';
+  endlessCard.style.setProperty('--song-color', ENDLESS_SONG.color);
+  endlessCard.style.setProperty('--song-accent', ENDLESS_SONG.accent);
+  endlessCard.innerHTML = `
+    <div class="song-card-top">
+      <span class="song-genre">${ENDLESS_SONG.genre}</span>
+      <span class="song-difficulty">∞</span>
+    </div>
+    <span class="song-name">${ENDLESS_SONG.title}</span>
+    <span class="song-meta">No time limit · speed ramps forever</span>
+    <span class="song-instruments">${ENDLESS_SONG.instruments.join(' · ')}</span>
+    <span class="song-desc">${ENDLESS_SONG.description}</span>
+  `;
+  endlessCard.addEventListener('click', () => startGame('endless'));
+  els.songGrid.appendChild(endlessCard);
 
   SONGS.forEach(song => {
     const card = document.createElement('button');
