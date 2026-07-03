@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beat Strike — Rhythm Game</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Press+Start+2P&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- Start Screen -->
+    <div id="start-screen" class="screen active">
+      <div class="logo">
+        <h1>BEAT STRIKE</h1>
+        <p class="tagline">Click in sync with the music. Stack your combo.</p>
+      </div>
+      <div class="instructions">
+        <div class="instruction-item">
+          <span class="key">CLICK</span>
+          <span>or press <strong>SPACE</strong> when lines shrink onto the beat</span>
+        </div>
+        <div class="instruction-item">
+          <span class="rating perfect">PERFECT</span>
+          <span>On-beat timing — max points</span>
+        </div>
+        <div class="instruction-item">
+          <span class="rating early">EARLY</span>
+          <span>Off the beat — combo resets</span>
+        </div>
+        <div class="instruction-item">
+          <span class="rating late">LATE</span>
+          <span>Missed the beat — combo resets</span>
+        </div>
+        <div class="instruction-item combo-hint">
+          <span>🎵</span>
+          <span>Pick a song and hit every beat in time with the music</span>
+        </div>
+      </div>
+      <button id="start-btn" class="btn-primary">CHOOSE SONG</button>
+      <button id="cosmetics-btn" class="btn-secondary">COSMETICS</button>
+    </div>
+
+    <!-- Cosmetics Screen -->
+    <div id="cosmetics-screen" class="screen">
+      <div class="select-header">
+        <h2>COSMETICS</h2>
+        <p class="select-subtitle">Unlock a new cosmetic every level · caps at level 50</p>
+        <div class="xp-display">
+          <span id="cos-level" class="xp-level">LVL 1</span>
+          <div class="xp-bar"><div id="cos-xp-fill" class="xp-fill"></div></div>
+          <span id="cos-xp-label" class="xp-label">0 / 100 XP</span>
+        </div>
+      </div>
+      <div id="cosmetics-grid" class="cosmetics-grid"></div>
+      <button id="cosmetics-back-btn" class="btn-secondary">BACK</button>
+    </div>
+
+    <!-- Level Select Screen -->
+    <div id="select-screen" class="screen">
+      <div class="select-header">
+        <h2>SELECT TRACK</h2>
+        <p class="select-subtitle">Songs, endless, chase mode · patterns & constellations</p>
+      </div>
+      <div id="song-grid" class="song-grid"></div>
+      <button id="back-btn" class="btn-secondary">BACK</button>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+      <div class="hud">
+        <div class="hud-left">
+          <div class="stat">
+            <span class="stat-label">SCORE</span>
+            <span id="score" class="stat-value">0</span>
+          </div>
+          <div class="stat song-stat">
+            <span class="stat-label">NOW PLAYING</span>
+            <span id="song-title" class="song-title-value">—</span>
+          </div>
+        </div>
+        <div class="hud-center">
+          <div id="combo-display" class="combo-display hidden">
+            <span id="combo-count">0</span>
+            <span class="combo-label">COMBO</span>
+          </div>
+        </div>
+        <div class="hud-right">
+          <div class="stat">
+            <span class="stat-label">BEST</span>
+            <span id="best-combo" class="stat-value">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="game-area">
+        <canvas id="game-canvas"></canvas>
+        <div id="feedback" class="feedback hidden"></div>
+        <div id="pause-overlay" class="pause-overlay hidden">
+          <div class="pause-card">
+            <h2>PAUSED</h2>
+            <p class="pause-hint">Press <kbd>ESC</kbd> to resume</p>
+            <div class="pause-actions">
+              <button id="pause-continue-btn" class="btn-primary">CONTINUE</button>
+              <button id="pause-leave-btn" class="btn-secondary">LEAVE</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="progress-container">
+        <div class="progress-header">
+          <span class="progress-title">SONG PROGRESS</span>
+          <span id="progress-label" class="progress-time">45s</span>
+        </div>
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Screen -->
+    <div id="results-screen" class="screen">
+      <div class="results-card">
+        <h2>GAME OVER</h2>
+        <p id="final-song" class="final-song"></p>
+        <div class="results-stats">
+          <div class="result-stat">
+            <span class="result-label">Final Score</span>
+            <span id="final-score" class="result-value">0</span>
+          </div>
+          <div class="result-stat">
+            <span class="result-label">Best Combo</span>
+            <span id="final-combo" class="result-value">0</span>
+          </div>
+          <div class="result-stat">
+            <span class="result-label">Accuracy</span>
+            <span id="final-accuracy" class="result-value">0%</span>
+          </div>
+          <div class="result-breakdown">
+            <span class="perfect-count"><span id="perfect-count">0</span> Perfect</span>
+            <span class="good-count"><span id="good-count">0</span> Good</span>
+            <span class="miss-count"><span id="miss-count">0</span> Miss</span>
+          </div>
+          <div class="xp-results">
+            <span id="xp-gained" class="xp-gained">+0 XP</span>
+            <div class="xp-display">
+              <span id="res-level" class="xp-level">LVL 1</span>
+              <div class="xp-bar"><div id="res-xp-fill" class="xp-fill"></div></div>
+              <span id="res-xp-label" class="xp-label">0 / 100 XP</span>
+            </div>
+            <span id="level-up-msg" class="level-up-msg hidden">LEVEL UP! New cosmetic unlocked!</span>
+          </div>
+        </div>
+        <div class="results-actions">
+          <button id="retry-btn" class="btn-primary">PLAY AGAIN</button>
+          <button id="select-back-btn" class="btn-secondary">CHOOSE SONG</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/backgrounds.js"></script>
+  <script src="js/music.js"></script>
+  <script src="js/progression.js"></script>
+  <script src="js/bullethell.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
