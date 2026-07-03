@@ -340,13 +340,29 @@ class BackgroundRenderer {
   drawChase(ctx, w, h) {
     const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.7);
     g.addColorStop(0, '#0a1810');
+    g.addColorStop(0.5, '#081218');
     g.addColorStop(1, '#050810');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
 
-    // Target reticle grid
-    ctx.strokeStyle = 'rgba(0, 255, 136, 0.06)';
+    // Fine reticle grid
+    ctx.strokeStyle = 'rgba(0, 255, 136, 0.04)';
     ctx.lineWidth = 1;
+    for (let x = 0; x < w; x += 30) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let y = 0; y < h; y += 30) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // Major grid lines
+    ctx.strokeStyle = 'rgba(0, 255, 136, 0.07)';
     for (let x = 0; x < w; x += 60) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -360,30 +376,122 @@ class BackgroundRenderer {
       ctx.stroke();
     }
 
+    // Diagonal crosshairs
+    ctx.strokeStyle = 'rgba(255, 107, 157, 0.04)';
+    for (let d = -h; d < w + h; d += 80) {
+      ctx.beginPath();
+      ctx.moveTo(d, 0);
+      ctx.lineTo(d + h, h);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(d, h);
+      ctx.lineTo(d + h, 0);
+      ctx.stroke();
+    }
+
+    // Corner HUD brackets
+    const bracketLen = 50;
+    const margin = 24;
+    ctx.strokeStyle = 'rgba(0, 255, 136, 0.2)';
+    ctx.lineWidth = 2;
+    [[margin, margin, 1, 1], [w - margin, margin, -1, 1], [margin, h - margin, 1, -1], [w - margin, h - margin, -1, -1]]
+      .forEach(([cx, cy, dx, dy]) => {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + bracketLen * dx, cy);
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx, cy + bracketLen * dy);
+        ctx.stroke();
+      });
+
     // Pulsing rings from center
-    for (let r = 0; r < 4; r++) {
-      const radius = 60 + ((this.t * 50 + r * 80) % 350);
-      ctx.strokeStyle = `rgba(255, 107, 157, ${0.12 - radius / 3000})`;
-      ctx.lineWidth = 2;
+    for (let r = 0; r < 8; r++) {
+      const radius = 40 + ((this.t * 45 + r * 55) % 400);
+      const alpha = Math.max(0, 0.14 - radius / 2800);
+      ctx.strokeStyle = r % 2 === 0
+        ? `rgba(255, 107, 157, ${alpha})`
+        : `rgba(0, 255, 136, ${alpha * 0.8})`;
+      ctx.lineWidth = r % 3 === 0 ? 2 : 1;
       ctx.beginPath();
       ctx.arc(w / 2, h / 2, radius, 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    // Floating target markers
-    for (let i = 0; i < 8; i++) {
-      const px = (Math.sin(this.t * 0.7 + i * 1.3) * 0.35 + 0.5) * w;
-      const py = (Math.cos(this.t * 0.5 + i * 0.9) * 0.35 + 0.5) * h;
-      ctx.strokeStyle = `rgba(0, 255, 136, ${0.08 + Math.sin(this.t + i) * 0.04})`;
+    // Orbiting hex rings
+    for (let i = 0; i < 6; i++) {
+      const angle = this.t * 0.4 + (i * Math.PI) / 3;
+      const orbitR = w * 0.28 + Math.sin(this.t + i) * 30;
+      const hx = w / 2 + Math.cos(angle) * orbitR;
+      const hy = h / 2 + Math.sin(angle) * orbitR * 0.6;
+      ctx.strokeStyle = `rgba(0, 240, 255, ${0.06 + Math.sin(this.t * 2 + i) * 0.03})`;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(px, py, 12, 0, Math.PI * 2);
-      ctx.moveTo(px - 18, py);
-      ctx.lineTo(px + 18, py);
-      ctx.moveTo(px, py - 18);
-      ctx.lineTo(px, py + 18);
+      for (let v = 0; v <= 6; v++) {
+        const a = (v / 6) * Math.PI * 2 + this.t;
+        const px = hx + Math.cos(a) * 18;
+        const py = hy + Math.sin(a) * 18;
+        if (v === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
       ctx.stroke();
     }
+
+    // Floating target markers
+    for (let i = 0; i < 16; i++) {
+      const px = (Math.sin(this.t * 0.7 + i * 1.3) * 0.38 + 0.5) * w;
+      const py = (Math.cos(this.t * 0.5 + i * 0.9) * 0.38 + 0.5) * h;
+      const pulse = 0.08 + Math.sin(this.t * 1.5 + i) * 0.05;
+      ctx.strokeStyle = `rgba(0, 255, 136, ${pulse})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(px, py, 10 + Math.sin(this.t + i) * 3, 0, Math.PI * 2);
+      ctx.moveTo(px - 16, py);
+      ctx.lineTo(px + 16, py);
+      ctx.moveTo(px, py - 16);
+      ctx.lineTo(px, py + 16);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(px, py, 22, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Drifting data particles
+    for (let i = 0; i < 40; i++) {
+      const px = ((i * 97 + this.t * 30) % 1) * w;
+      const py = ((i * 53 + this.t * 18 + i * 0.3) % 1) * h;
+      const size = 1 + (i % 3);
+      ctx.fillStyle = i % 2 === 0
+        ? `rgba(0, 255, 136, ${0.15 + Math.sin(this.t + i) * 0.08})`
+        : `rgba(255, 107, 157, ${0.12 + Math.cos(this.t * 1.2 + i) * 0.06})`;
+      ctx.fillRect(px, py, size, size * 3);
+    }
+
+    // Scan sweep
+    const scanAngle = this.t * 0.8;
+    const sg = ctx.createLinearGradient(
+      w / 2, h / 2,
+      w / 2 + Math.cos(scanAngle) * w,
+      h / 2 + Math.sin(scanAngle) * h
+    );
+    sg.addColorStop(0, 'rgba(0, 255, 136, 0)');
+    sg.addColorStop(0.5, 'rgba(0, 255, 136, 0.04)');
+    sg.addColorStop(1, 'rgba(0, 255, 136, 0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, 0, w, h);
+
+    // Horizontal scanline
+    const scanY = (this.t * 60) % h;
+    ctx.fillStyle = 'rgba(0, 255, 136, 0.025)';
+    ctx.fillRect(0, scanY, w, 2);
+
+    // Status readout hints
+    ctx.font = '10px Orbitron, sans-serif';
+    ctx.fillStyle = `rgba(0, 255, 136, ${0.15 + Math.sin(this.t * 3) * 0.05})`;
+    ctx.fillText('TARGET ACQUIRED', w * 0.04, h * 0.06);
+    ctx.fillStyle = `rgba(255, 107, 157, ${0.12 + Math.cos(this.t * 2.5) * 0.04})`;
+    ctx.fillText('CHASE MODE', w * 0.82, h * 0.06);
+    ctx.fillStyle = 'rgba(0, 240, 255, 0.1)';
+    ctx.fillText(`T+${Math.floor(this.t)}`, w * 0.04, h * 0.95);
   }
 }
 

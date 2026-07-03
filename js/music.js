@@ -398,6 +398,10 @@ class SongPlayer {
     this.song = null;
   }
 
+  setMuted(muted) {
+    if (this.master) this.master.gain.value = muted ? 0 : 0.42;
+  }
+
   getElapsedMs() {
     if (!this.playing || !this.ctx) return 0;
     return Math.max(0, (this.ctx.currentTime - this.startTime) * 1000);

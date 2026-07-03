@@ -25,7 +25,12 @@ const CONFIG = {
   endlessMinApproach: 350,
   chaseBaseFade: 2800,
   chaseMinFade: 1200,
-  chaseHoverRadius: 22,
+  chaseHoverRadius: 40,
+  chaseShapeSize: 66,
+  chaseMinPerfectWindow: 90,
+  chaseMaxPerfectWindow: 170,
+  chaseMinGoodWindow: 200,
+  chaseMaxGoodWindow: 380,
   chaseTriplePerfect: 3,
 };
 
@@ -34,11 +39,11 @@ const CHASE_MODES = {
     id: 'chase-easy',
     title: 'Cursor Chase — Easy',
     label: 'Easy',
-    baseFade: 3400,
-    minFade: 2000,
-    speedRamp: 0.016,
+    baseFade: 5800,
+    minFade: 3600,
+    speedRamp: 0.008,
     maxSimultaneous: 1,
-    spawnInterval: 450,
+    spawnInterval: 650,
     missLimit: 12,
     bonusCount: 2,
   },
@@ -46,11 +51,11 @@ const CHASE_MODES = {
     id: 'chase-medium',
     title: 'Cursor Chase — Medium',
     label: 'Medium',
-    baseFade: 2700,
-    minFade: 1500,
-    speedRamp: 0.026,
+    baseFade: 4800,
+    minFade: 2800,
+    speedRamp: 0.012,
     maxSimultaneous: 1,
-    spawnInterval: 300,
+    spawnInterval: 500,
     missLimit: 10,
     bonusCount: 2,
   },
@@ -58,11 +63,11 @@ const CHASE_MODES = {
     id: 'chase-hard',
     title: 'Cursor Chase — Hard',
     label: 'Hard',
-    baseFade: 2200,
-    minFade: 1100,
-    speedRamp: 0.036,
+    baseFade: 4000,
+    minFade: 2200,
+    speedRamp: 0.018,
     maxSimultaneous: 2,
-    spawnInterval: 220,
+    spawnInterval: 380,
     missLimit: 8,
     bonusCount: 3,
   },
@@ -70,11 +75,11 @@ const CHASE_MODES = {
     id: 'chase-endless',
     title: 'Cursor Chase — Endless',
     label: 'Endless',
-    baseFade: 3000,
-    minFade: 900,
-    speedRamp: 0.042,
+    baseFade: 5200,
+    minFade: 2000,
+    speedRamp: 0.02,
     maxSimultaneous: 2,
-    spawnInterval: 380,
+    spawnInterval: 550,
     missLimit: 10,
     bonusCount: 3,
     isEndless: true,
@@ -111,6 +116,23 @@ function rollTimingWindows() {
   return { perfectWindow, goodWindow };
 }
 
+function rollChaseTimingWindows() {
+  const perfectWindow = CONFIG.chaseMinPerfectWindow
+    + Math.floor(Math.random() * (CONFIG.chaseMaxPerfectWindow - CONFIG.chaseMinPerfectWindow));
+  const multiplier = 1.8 + Math.random() * 0.6;
+  const goodWindow = Math.min(
+    CONFIG.chaseMaxGoodWindow,
+    Math.max(CONFIG.chaseMinGoodWindow, Math.round(perfectWindow * multiplier))
+  );
+  return { perfectWindow, goodWindow };
+}
+
+function gameNow() {
+  const raw = performance.now();
+  if (state.paused) return state.pauseAt - state.pausedTimeOffset;
+  return raw - state.pausedTimeOffset;
+}
+
 function getEndlessApproachTime(elapsedSec) {
   const factor = 1 + elapsedSec * 0.022;
   return Math.max(CONFIG.endlessMinApproach, CONFIG.endlessBaseApproach / factor);
@@ -119,7 +141,7 @@ function getEndlessApproachTime(elapsedSec) {
 function getChaseFadeDuration(elapsedSec) {
   const diff = state.chaseDifficulty;
   if (!diff) return CONFIG.chaseBaseFade;
-  const factor = 1 + elapsedSec * diff.speedRamp + state.speedLevel * 0.1;
+  const factor = 1 + elapsedSec * diff.speedRamp + state.speedLevel * 0.05;
   return Math.max(diff.minFade, diff.baseFade / factor);
 }
 
@@ -146,7 +168,9 @@ function getCanvasCoords(clientX, clientY) {
 }
 
 function isMouseOnNote(note, mx, my) {
-  return Math.hypot(mx - note.x, my - note.y) <= CONFIG.shapeSize + CONFIG.chaseHoverRadius;
+  const size = state.chaseMode ? CONFIG.chaseShapeSize : CONFIG.shapeSize;
+  const hover = state.chaseMode ? CONFIG.chaseHoverRadius : 0;
+  return Math.hypot(mx - note.x, my - note.y) <= size + hover;
 }
 
 const state = {
@@ -182,6 +206,9 @@ const state = {
   chaseNotes: [],
   chasePerfectStreak: 0,
   triplePerfectFlash: 0,
+  paused: false,
+  pauseAt: 0,
+  pausedTimeOffset: 0,
   mouseX: 0,
   mouseY: 0,
   mouseOnCanvas: false,
@@ -215,13 +242,47 @@ const els = {
   goodCount: document.getElementById('good-count'),
   missCount: document.getElementById('miss-count'),
   songGrid: document.getElementById('song-grid'),
+  pauseOverlay: document.getElementById('pause-overlay'),
+  pauseContinueBtn: document.getElementById('pause-continue-btn'),
+  pauseLeaveBtn: document.getElementById('pause-leave-btn'),
 };
 
 const ctx = els.canvas.getContext('2d');
 
 function showScreen(name) {
-  Object.values(screens).forEach(s => s.classList.remove('active'));
-  screens[name].classList.add('active');
+  Object.values(screens).forEach(s => s && s.classList.remove('active'));
+  if (screens[name]) screens[name].classList.add('active');
+  if (name !== 'game' && els.pauseOverlay) {
+    els.pauseOverlay.classList.add('hidden');
+    state.paused = false;
+  }
+}
+
+function togglePause() {
+  if (!state.running || !screens.game.classList.contains('active')) return;
+
+  if (state.paused) {
+    state.pausedTimeOffset += performance.now() - state.pauseAt;
+    state.paused = false;
+    songPlayer.setMuted(false);
+    if (els.pauseOverlay) els.pauseOverlay.classList.add('hidden');
+    return;
+  }
+
+  state.paused = true;
+  state.pauseAt = performance.now();
+  songPlayer.setMuted(true);
+  if (els.pauseOverlay) els.pauseOverlay.classList.remove('hidden');
+}
+
+function leaveGame() {
+  state.running = false;
+  state.paused = false;
+  state.pausedTimeOffset = 0;
+  songPlayer.stop();
+  songPlayer.setMuted(false);
+  if (els.pauseOverlay) els.pauseOverlay.classList.add('hidden');
+  showScreen(state.chaseMode ? 'chaseSelect' : 'select');
 }
 
 function initAudio() {
@@ -600,7 +661,7 @@ function chaseRandomPosition(existing) {
 }
 
 function createChaseNote(hitTime, approachTime, pos, isBonus = false) {
-  const windows = rollTimingWindows();
+  const windows = rollChaseTimingWindows();
   return {
     id: state.totalNotes++,
     x: pos.x,
@@ -623,9 +684,9 @@ function createChaseNote(hitTime, approachTime, pos, isBonus = false) {
 function spawnChaseNotes(now, count = 1, isBonus = false) {
   const elapsed = (now - state.gameStartTime) / 1000;
   const fadeDuration = getChaseFadeDuration(elapsed);
-  const approachTime = fadeDuration * 0.88;
+  const approachTime = fadeDuration * 1.05;
   const active = state.chaseNotes.filter(n => !n.removed);
-  const staggerMs = state.chaseDifficulty?.isEndless ? 220 : 140;
+  const staggerMs = state.chaseDifficulty?.isEndless ? 320 : 220;
 
   for (let i = 0; i < count; i++) {
     const pos = chaseRandomPosition(active);
@@ -664,7 +725,7 @@ function triggerTriplePerfectBonus(note) {
   spawnFireworks(burstPoints);
 
   const count = state.chaseDifficulty?.bonusCount || 2;
-  spawnChaseNotes(performance.now(), count, true);
+  spawnChaseNotes(gameNow(), count, true);
 
   const color = state.song?.color || '#00ff88';
   for (let i = 0; i < 24; i++) {
@@ -807,17 +868,17 @@ function finishCurrentNote() {
 
   if (state.endlessMode) {
     state.endlessWaiting = true;
-    const elapsed = (performance.now() - state.gameStartTime) / 1000;
+    const elapsed = (gameNow() - state.gameStartTime) / 1000;
     const gap = state.chaseMode
       ? Math.max(30, 140 - elapsed * 4)
       : Math.max(40, 160 - elapsed * 3.5);
-    state.nextSpawnAt = performance.now() + gap;
+    state.nextSpawnAt = gameNow() + gap;
   }
 }
 
 function resolveNote(note, rating) {
   note.clicked = true;
-  note.clickTime = performance.now();
+  note.clickTime = gameNow();
   note.rating = rating;
   if (rating === 'perfect') note.hit = true;
   else note.missed = true;
@@ -897,7 +958,7 @@ function handleChaseInput(clientX, clientY) {
     return;
   }
 
-  const now = performance.now();
+  const now = gameNow();
   const diff = now - note.hitTime;
   const { goodWindow, perfectWindow } = note;
 
@@ -920,7 +981,7 @@ function handleChaseInput(clientX, clientY) {
 }
 
 function handleInput(clientX, clientY) {
-  if (!state.running) return;
+  if (!state.running || state.paused) return;
 
   if (state.chaseMode) {
     handleChaseInput(clientX, clientY);
@@ -938,7 +999,7 @@ function handleInput(clientX, clientY) {
     my = pos.y;
   }
 
-  const now = performance.now();
+  const now = gameNow();
   const diff = now - note.hitTime;
   const goodWindow = note.goodWindow;
   const perfectWindow = note.perfectWindow;
@@ -978,7 +1039,7 @@ function spawnParticles(x, y) {
 function drawNote(note, now) {
   const timeLeft = note.hitTime - now;
   const progress = Math.min(1, Math.max(0, 1 - timeLeft / note.approachTime));
-  const targetSize = CONFIG.shapeSize;
+  const targetSize = state.chaseMode ? CONFIG.chaseShapeSize : CONFIG.shapeSize;
   const approachScale = CONFIG.approachStartScale - (CONFIG.approachStartScale - 1) * progress;
   const approachSize = targetSize * approachScale;
   const accent = state.song ? state.song.accent : '#ff00aa';
@@ -1010,8 +1071,8 @@ function drawNote(note, now) {
 
   if (state.chaseMode) {
     const hovering = state.mouseOnCanvas && isMouseOnNote(note, state.mouseX, state.mouseY);
-    const fadeUrgency = Math.max(0, (progress - 0.5) / 0.5);
-    ctx.globalAlpha = 1 - fadeUrgency * 0.35;
+    const fadeUrgency = Math.max(0, (progress - 0.72) / 0.28);
+    ctx.globalAlpha = 1 - fadeUrgency * 0.2;
     if (note.isBonus) {
       ctx.shadowColor = '#ffd700';
       ctx.shadowBlur = 15;
@@ -1196,7 +1257,7 @@ function showFeedback(text, className) {
 
 function updateProgress() {
   if (state.endlessMode || state.chaseMode) {
-    const elapsed = performance.now() - state.gameStartTime;
+    const elapsed = gameNow() - state.gameStartTime;
     const sec = Math.floor(elapsed / 1000);
     els.progressFill.style.width = `${((sec % 45) / 45) * 100}%`;
     if (els.progressLabel) {
@@ -1217,7 +1278,13 @@ function updateProgress() {
 function gameLoop() {
   if (!state.running) return;
 
-  const now = performance.now();
+  if (state.paused) {
+    render(gameNow());
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  const now = gameNow();
   render(now);
   updateProgress();
 
@@ -1257,6 +1324,9 @@ function resetGameState() {
   state.chaseNotes = [];
   state.chasePerfectStreak = 0;
   state.triplePerfectFlash = 0;
+  state.paused = false;
+  state.pauseAt = 0;
+  state.pausedTimeOffset = 0;
   state.endlessWaiting = false;
   state.mouseOnCanvas = false;
   state.nextSpawnAt = 0;
@@ -1371,7 +1441,7 @@ function endGame() {
   if (els.finalSong) {
     els.finalSong.textContent = state.song
       ? state.song.title + ((state.endlessMode || state.chaseMode)
-        ? ` · ${Math.floor((performance.now() - state.gameStartTime) / 1000)}s` : '')
+        ? ` · ${Math.floor((gameNow() - state.gameStartTime) / 1000)}s` : '')
       : '';
   }
 
@@ -1473,6 +1543,8 @@ document.getElementById('retry-btn').addEventListener('click', () => startGame(s
 const chaseBackBtn = document.getElementById('chase-back-btn');
 if (chaseBackBtn) chaseBackBtn.addEventListener('click', () => showScreen('select'));
 document.getElementById('select-back-btn').addEventListener('click', () => showScreen('select'));
+if (els.pauseContinueBtn) els.pauseContinueBtn.addEventListener('click', togglePause);
+if (els.pauseLeaveBtn) els.pauseLeaveBtn.addEventListener('click', leaveGame);
 
 els.canvas.addEventListener('click', (e) => handleInput(e.clientX, e.clientY));
 
@@ -1488,11 +1560,19 @@ els.canvas.addEventListener('mouseleave', () => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape') {
+    e.preventDefault();
+    if (screens.game.classList.contains('active') && state.running) {
+      togglePause();
+    }
+    return;
+  }
+
   if (e.code === 'Space') {
     e.preventDefault();
     if (screens.start.classList.contains('active')) showScreen('select');
     else if (screens.results.classList.contains('active')) startGame(state.selectedSongId);
-    else if (screens.game.classList.contains('active') && !state.chaseMode) handleInput();
+    else if (screens.game.classList.contains('active') && !state.chaseMode && !state.paused) handleInput();
   }
 });
 

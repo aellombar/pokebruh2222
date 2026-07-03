@@ -92,6 +92,16 @@
       <div id="game-area">
         <canvas id="game-canvas"></canvas>
         <div id="feedback" class="feedback hidden"></div>
+        <div id="pause-overlay" class="pause-overlay hidden">
+          <div class="pause-card">
+            <h2>PAUSED</h2>
+            <p class="pause-hint">Press <kbd>ESC</kbd> to resume</p>
+            <div class="pause-actions">
+              <button id="pause-continue-btn" class="btn-primary">CONTINUE</button>
+              <button id="pause-leave-btn" class="btn-secondary">LEAVE</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="progress-container">
