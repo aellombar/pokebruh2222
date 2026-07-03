@@ -6,14 +6,17 @@
 // ─── Configuration ───────────────────────────────────────────────
 const CONFIG = {
   gameDuration: 60,
-  approachTime: 1600,
+  baseApproachTime: 1600,
+  minApproachTime: 550,
+  speedIncreasePerLevel: 0.1,
   perfectWindow: 70,
   goodWindow: 140,
   basePoints: 100,
   shapeSize: 58,
   approachStartScale: 3.2,
   missLimit: 10,
-  gapBetweenNotes: 300,
+  baseGapBetweenNotes: 200,
+  minGapBetweenNotes: 80,
 };
 
 const SHAPE_TYPES = ['circle', 'square', 'triangle', 'hexagon', 'diamond'];
@@ -33,6 +36,8 @@ const state = {
   startTime: 0,
   currentNote: null,
   nextSpawnAt: 0,
+  speedLevel: 0,
+  perfectHitStreak: 0,
   particles: [],
   audioCtx: null,
 };
@@ -162,6 +167,26 @@ function drawShapeOutline(x, y, type, size, color, lineWidth, fill = null) {
   ctx.restore();
 }
 
+// ─── Speed ───────────────────────────────────────────────────────
+function getApproachTime() {
+  const multiplier = 1 - state.speedLevel * CONFIG.speedIncreasePerLevel;
+  return Math.max(CONFIG.minApproachTime, CONFIG.baseApproachTime * multiplier);
+}
+
+function getGapBetweenNotes() {
+  const multiplier = 1 - state.speedLevel * 0.06;
+  return Math.max(CONFIG.minGapBetweenNotes, CONFIG.baseGapBetweenNotes * multiplier);
+}
+
+function maybeIncreaseSpeed() {
+  state.perfectHitStreak++;
+  if (state.perfectHitStreak % 2 === 0) {
+    state.speedLevel++;
+    return true;
+  }
+  return false;
+}
+
 // ─── Note Spawning ───────────────────────────────────────────────
 function hasActiveNote() {
   return state.currentNote !== null;
@@ -172,13 +197,17 @@ function spawnNote() {
 
   const w = els.canvas.width;
   const h = els.canvas.height;
+  const approachTime = getApproachTime();
+  const now = performance.now();
 
   state.currentNote = {
     id: state.totalNotes++,
     x: w / 2,
     y: h / 2,
     shape: SHAPE_TYPES[Math.floor(Math.random() * SHAPE_TYPES.length)],
-    hitTime: performance.now() + CONFIG.approachTime,
+    approachTime,
+    spawnTime: now,
+    hitTime: now + approachTime,
     hit: false,
     missed: false,
     rating: null,
@@ -195,7 +224,7 @@ function trySpawnNext(now) {
 
 function finishCurrentNote(now) {
   state.currentNote = null;
-  state.nextSpawnAt = now + CONFIG.gapBetweenNotes;
+  state.nextSpawnAt = now + getGapBetweenNotes();
 }
 
 // ─── Scoring ─────────────────────────────────────────────────────
@@ -209,6 +238,7 @@ function registerHit(rating, note) {
   if (rating === 'miss') {
     state.misses++;
     state.combo = 0;
+    state.perfectHitStreak = 0;
     updateComboDisplay();
     showFeedback('MISS', 'miss');
     playHitSound('miss');
@@ -232,12 +262,18 @@ function registerHit(rating, note) {
   const points = calculatePoints(rating);
   state.score += points;
 
-  if (rating === 'perfect') state.perfects++;
-  else state.goods++;
+  let speedUp = false;
+  if (rating === 'perfect') {
+    state.perfects++;
+    speedUp = maybeIncreaseSpeed();
+  } else {
+    state.goods++;
+  }
 
   updateHUD();
   updateComboDisplay();
-  showFeedback(rating.toUpperCase() + ' +' + points, rating);
+  const feedbackText = rating.toUpperCase() + ' +' + points + (speedUp ? ' — SPEED UP!' : '');
+  showFeedback(feedbackText, rating);
   playHitSound(rating);
   if (note) spawnParticles(note.x, note.y);
 }
@@ -296,7 +332,7 @@ function spawnParticles(x, y) {
 // ─── Rendering ───────────────────────────────────────────────────
 function drawNote(note, now) {
   const timeLeft = note.hitTime - now;
-  const progress = Math.min(1, Math.max(0, 1 - timeLeft / CONFIG.approachTime));
+  const progress = Math.min(1, Math.max(0, 1 - timeLeft / note.approachTime));
   const targetSize = CONFIG.shapeSize;
   const approachScale = CONFIG.approachStartScale - (CONFIG.approachStartScale - 1) * progress;
   const approachSize = targetSize * approachScale;
@@ -469,7 +505,6 @@ function gameLoop(timestamp) {
 // ─── Game Flow ───────────────────────────────────────────────────
 function startGame() {
   initAudio();
-  resizeCanvas();
 
   state.running = true;
   state.score = 0;
@@ -483,6 +518,8 @@ function startGame() {
   state.totalNotes = 0;
   state.currentNote = null;
   state.nextSpawnAt = 0;
+  state.speedLevel = 0;
+  state.perfectHitStreak = 0;
   state.particles = [];
   state.startTime = performance.now();
 
@@ -490,8 +527,10 @@ function startGame() {
   updateComboDisplay();
   updateProgress(0);
   showScreen('game');
+  resizeCanvas();
 
   spawnNote();
+  render(performance.now());
   requestAnimationFrame(gameLoop);
 }
 
